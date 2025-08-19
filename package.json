@@ -1,0 +1,21 @@
+{
+  "name": "dataops-agent",
+  "displayName": "DataOps Agent",
+  "publisher": "your-org",
+  "version": "0.0.1",
+  "engines": { "vscode": "^1.90.0" },
+  "activationEvents": ["onCommand:dataOps.runPipeline"],
+  "contributes": {
+    "commands": [
+      { "command": "dataOps.runPipeline", "title": "DataOps: Run CSV→Script→Execute→Cleanse" }
+    ]
+  },
+  "main": "./out/extension.js",
+  "dependencies": {},
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "typescript": "^5.4.0",
+    "vsce": "^3.0.0",
+    "vscode": "^1.1.45"
+  }
+}
