@@ -1,0 +1,551 @@
+import React, { useState, useEffect } from 'react';
+import {
+  Box,
+  Button,
+  Card,
+  CardContent,
+  Paper,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  Typography,
+  Checkbox,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
+  GridLegacy as Grid,
+  Chip,
+  OutlinedInput,
+  ListItemText,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  List,
+  ListItem,
+  ListItemIcon,
+  Accordion,
+  AccordionSummary,
+  AccordionDetails,
+  useTheme,
+  useMediaQuery
+} from '@mui/material';
+import {
+  Add,
+  Delete,
+  Refresh,
+  CloudDownload,
+  ExpandMore,
+  TableChart,
+  ViewColumn
+} from '@mui/icons-material';
+
+// Multi-select dropdown component with scrollable menu
+const MultiSelectDropdown = ({ label, options, selected, onChange, disabled }) => {
+  return (
+    <FormControl fullWidth size="small" disabled={disabled}>
+      <InputLabel>{label}</InputLabel>
+      <Select
+        multiple
+        value={selected}
+        onChange={onChange}
+        input={<OutlinedInput label={label} />}
+        renderValue={(selected) => selected.join(', ')}
+        MenuProps={{
+          PaperProps: {
+            style: {
+              maxHeight: 300,
+              overflow: 'auto',
+            },
+          },
+        }}
+      >
+        {options.map((option) => (
+          <MenuItem key={option} value={option}>
+            <Checkbox checked={selected.indexOf(option) > -1} />
+            <ListItemText primary={option} />
+          </MenuItem>
+        ))}
+      </Select>
+    </FormControl>
+  );
+};
+
+// Single select dropdown with scrollable menu
+const SingleSelectDropdown = ({ label, value, options, onChange, disabled }) => {
+  return (
+    <FormControl fullWidth size="small" disabled={disabled}>
+      <InputLabel>{label}</InputLabel>
+      <Select
+        value={value}
+        label={label}
+        onChange={onChange}
+        MenuProps={{
+          PaperProps: {
+            style: {
+              maxHeight: 300,
+              overflow: 'auto',
+            },
+          },
+        }}
+      >
+        {options.map((option) => (
+          <MenuItem key={option} value={option}>{option}</MenuItem>
+        ))}
+      </Select>
+    </FormControl>
+  );
+};
+
+const DataSources = ({ data, onChange, onValidityChange }) => {
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
+  
+  // Sample options for dropdowns
+  const platformOptions = ['LCD Datamart', 'Hadoop', 'AWS Redshift', 'Google BigQuery', 'Snowflake'];
+  const databaseOptions = {
+    'LCD Datamart': ['nypd_icdmart', 'nypd_edmart', 'nypd_cdmart'],
+    'Hadoop': ['hive_warehouse', 'hadoop_prod'],
+    'AWS Redshift': ['redshift_prod', 'redshift_dev'],
+    'Google BigQuery': ['bq_analytics', 'bq_staging'],
+    'Snowflake': ['snowflake_analytics', 'snowflake_etl']
+  };
+  const tableOptions = {
+    'nypd_icdmart': ['arrests', 'incidents', 'officers', 'cases'],
+    'nypd_edmart': ['emergencies', 'responses'],
+    'nypd_cdmart': ['crime_stats', 'demographics'],
+    'hive_warehouse': ['logs', 'events'],
+    'hadoop_prod': ['transactions', 'users'],
+    'redshift_prod': ['customer_data', 'sales'],
+    'redshift_dev': ['test_data', 'dev_metrics'],
+    'bq_analytics': ['user_analytics', 'engagement'],
+    'bq_staging': ['staging_events', 'temp_data'],
+    'snowflake_analytics': ['financials', 'reports'],
+    'snowflake_etl': ['etl_jobs', 'pipelines']
+  };
+  const columnOptions = {
+    'arrests': Array.from({length: 20}, (_, i) => `column_${i+1}`),
+    'incidents': Array.from({length: 15}, (_, i) => `column_${i+1}`),
+    'officers': Array.from({length: 25}, (_, i) => `column_${i+1}`),
+    'cases': Array.from({length: 18}, (_, i) => `column_${i+1}`),
+    'emergencies': Array.from({length: 12}, (_, i) => `column_${i+1}`),
+    'responses': Array.from({length: 22}, (_, i) => `column_${i+1}`),
+    'crime_stats': Array.from({length: 10}, (_, i) => `column_${i+1}`),
+    'demographics': Array.from({length: 8}, (_, i) => `column_${i+1}`)
+  };
+
+  // Use the data from props as the initial state
+  const [rows, setRows] = useState(data || [
+    {
+      id: 1,
+      selected: false,
+      platform: '',
+      database: '',
+      tables: [],
+      columns: []
+    }
+  ]);
+
+  // State for the column selection dialog
+  const [columnDialogOpen, setColumnDialogOpen] = useState(false);
+  const [currentRow, setCurrentRow] = useState(null);
+  const [tableSelections, setTableSelections] = useState({});
+
+  // Update local state when props change
+  useEffect(() => {
+    if (data) {
+      setRows(data);
+    }
+  }, [data]);
+
+  // Notify parent of changes
+  useEffect(() => {
+    if (onChange) {
+      onChange(rows);
+    }
+    
+    // Check validity and notify parent
+    if (onValidityChange) {
+      const isValid = validateDataSources(rows);
+      onValidityChange(isValid);
+    }
+  }, [rows, onChange, onValidityChange]);
+
+  // Validate data sources
+  const validateDataSources = (dataRows) => {
+    if (!dataRows || dataRows.length === 0) return false;
+    
+    return dataRows.every(row => 
+      row.platform && 
+      row.database && 
+      row.tables.length > 0 && 
+      row.columns.length > 0
+    );
+  };
+
+  // Handler for adding a new row
+  const handleAddRow = () => {
+    const newRow = {
+      id: Date.now(), // Use timestamp for unique ID
+      selected: false,
+      platform: '',
+      database: '',
+      tables: [],
+      columns: []
+    };
+    setRows([...rows, newRow]);
+  };
+
+  // Handler for deleting selected rows
+  const handleDeleteSelected = () => {
+    const updatedRows = rows.filter(row => !row.selected);
+    setRows(updatedRows);
+  };
+
+  // Handler for toggling row selection
+  const handleSelectRow = (id) => {
+    const updatedRows = rows.map(row =>
+      row.id === id ? { ...row, selected: !row.selected } : row
+    );
+    setRows(updatedRows);
+  };
+
+  // Handler for selecting all rows
+  const handleSelectAll = (event) => {
+    const updatedRows = rows.map(row => ({ ...row, selected: event.target.checked }));
+    setRows(updatedRows);
+  };
+
+  // Handler for dropdown changes
+  const handleDropdownChange = (id, field, value) => {
+    const updatedRows = rows.map(row => {
+      if (row.id === id) {
+        // Reset dependent fields when platform, database, or table changes
+        let updatedRow = { ...row, [field]: value };
+        
+        if (field === 'platform') {
+          updatedRow = { ...updatedRow, database: '', tables: [], columns: [] };
+        } else if (field === 'database') {
+          updatedRow = { ...updatedRow, tables: [], columns: [] };
+        } else if (field === 'tables') {
+          updatedRow = { ...updatedRow, columns: [] };
+        }
+        
+        return updatedRow;
+      }
+      return row;
+    });
+    
+    setRows(updatedRows);
+  };
+
+  // Handler for opening the column selection dialog
+  const handleOpenColumnDialog = (row) => {
+    setCurrentRow(row);
+    
+    // Initialize table selections
+    const selections = {};
+    row.tables.forEach(table => {
+      selections[table] = row.columns
+        .filter(col => col.startsWith(`${table}.`))
+        .map(col => col.replace(`${table}.`, ''));
+    });
+    
+    setTableSelections(selections);
+    setColumnDialogOpen(true);
+  };
+
+  // Handler for closing the column selection dialog
+  const handleCloseColumnDialog = () => {
+    setColumnDialogOpen(false);
+    setCurrentRow(null);
+    setTableSelections({});
+  };
+
+  // Handler for saving column selections
+  const handleSaveColumnSelections = () => {
+    if (!currentRow) return;
+    
+    // Combine all selected columns with table prefixes
+    const allColumns = [];
+    Object.entries(tableSelections).forEach(([table, columns]) => {
+      columns.forEach(column => {
+        allColumns.push(`${table}.${column}`);
+      });
+    });
+    
+    // Update the row with the new column selections
+    const updatedRows = rows.map(row => 
+      row.id === currentRow.id ? { ...row, columns: allColumns } : row
+    );
+    
+    setRows(updatedRows);
+    handleCloseColumnDialog();
+  };
+
+  // Handler for toggling column selection in the dialog
+  const handleToggleColumn = (table, column) => {
+    setTableSelections(prev => {
+      const newSelections = { ...prev };
+      if (!newSelections[table]) {
+        newSelections[table] = [];
+      }
+      
+      if (newSelections[table].includes(column)) {
+        newSelections[table] = newSelections[table].filter(col => col !== column);
+      } else {
+        newSelections[table] = [...newSelections[table], column];
+      }
+      
+      return newSelections;
+    });
+  };
+
+  // Check if all rows are selected
+  const allSelected = rows.length > 0 && rows.every(row => row.selected);
+  // Check if some rows are selected
+  const someSelected = rows.some(row => row.selected) && !allSelected;
+
+  return (
+    <Box sx={{ p: isMobile ? 1 : 3, backgroundColor: '#f5f7f9', minHeight: '100vh' }}>
+      {/* Header Section */}
+      <Box display="flex" justifyContent="space-between" alignItems="center" mb={3} flexDirection={isMobile ? 'column' : 'row'} gap={isMobile ? 2 : 0}>
+        <Box>
+          <Typography variant="h4" fontWeight="600" color="primary" fontSize={isMobile ? '1.75rem' : '2.125rem'}>
+            Data Sources
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+            Configure your data sources for integration
+          </Typography>
+        </Box>
+      </Box>
+
+      {/* Action Buttons Card */}
+      <Card sx={{ mb: 3, borderRadius: 2, boxShadow: 2 }}>
+        <CardContent sx={{ p: 2 }}>
+          <Grid container spacing={2} alignItems="center">
+            <Grid item xs={12} sm={6} md={4} lg={3}>
+              <Button 
+                variant="contained" 
+                startIcon={<Add />}
+                onClick={handleAddRow}
+                sx={{ borderRadius: 2 }}
+                fullWidth
+              >
+                Add Row
+              </Button>
+            </Grid>
+            <Grid item xs={12} sm={6} md={4} lg={3}>
+              <Button 
+                variant="outlined" 
+                color="error"
+                startIcon={<Delete />}
+                onClick={handleDeleteSelected}
+                disabled={!rows.some(row => row.selected)}
+                sx={{ borderRadius: 2 }}
+                fullWidth
+              >
+                Delete Selected Row{rows.filter(row => row.selected).length !== 1 ? 's' : ''}
+              </Button>
+            </Grid>
+            <Grid item xs={12} md={4} lg={6}>
+              <Box display="flex" justifyContent="flex-end">
+                <Chip 
+                  label={`${rows.filter(row => row.selected).length} row${rows.filter(row => row.selected).length !== 1 ? 's' : ''} selected`} 
+                  variant="outlined"
+                  color="primary"
+                  sx={{ display: rows.filter(row => row.selected).length > 0 ? 'flex' : 'none' }}
+                />
+              </Box>
+            </Grid>
+          </Grid>
+        </CardContent>
+      </Card>
+
+      {/* Data Grid Card */}
+      <Card sx={{ borderRadius: 2, boxShadow: 2, overflow: 'auto' }}>
+        <TableContainer component={Paper} sx={{ maxHeight: '60vh', minWidth: isMobile ? 800 : 'auto' }}>
+          <Table stickyHeader aria-label="data sources table" size={isMobile ? 'small' : 'medium'}>
+            <TableHead>
+              <TableRow>
+                <TableCell padding="checkbox" sx={{ backgroundColor: '#f0f4f8' }}>
+                  <Checkbox
+                    color="primary"
+                    indeterminate={someSelected}
+                    checked={allSelected}
+                    onChange={handleSelectAll}
+                  />
+                </TableCell>
+                <TableCell sx={{ backgroundColor: '#f0f4f8', fontWeight: 'bold' }}>Platform</TableCell>
+                <TableCell sx={{ backgroundColor: '#f0f4f8', fontWeight: 'bold' }}>Database</TableCell>
+                <TableCell sx={{ backgroundColor: '#f0f4f8', fontWeight: 'bold' }}>Table(s)</TableCell>
+                <TableCell sx={{ backgroundColor: '#f0f4f8', fontWeight: 'bold' }}>Column(s)</TableCell>
+                <TableCell sx={{ backgroundColor: '#f0f4f8', fontWeight: 'bold' }}>Actions</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {rows.map((row) => (
+                <TableRow 
+                  key={row.id} 
+                  hover 
+                  selected={row.selected}
+                  sx={{ 
+                    '&:last-child td, &:last-child th': { border: 0 },
+                    '&.Mui-selected': {
+                      backgroundColor: '#e3f2fd'
+                    }
+                  }}
+                >
+                  <TableCell padding="checkbox">
+                    <Checkbox
+                      color="primary"
+                      checked={row.selected}
+                      onChange={() => handleSelectRow(row.id)}
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <SingleSelectDropdown
+                      label="Platform"
+                      value={row.platform}
+                      options={platformOptions}
+                      onChange={(e) => handleDropdownChange(row.id, 'platform', e.target.value)}
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <SingleSelectDropdown
+                      label="Database"
+                      value={row.database}
+                      options={row.platform ? databaseOptions[row.platform] || [] : []}
+                      onChange={(e) => handleDropdownChange(row.id, 'database', e.target.value)}
+                      disabled={!row.platform}
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <MultiSelectDropdown
+                      label="Table(s)"
+                      options={row.database ? tableOptions[row.database] || [] : []}
+                      selected={row.tables}
+                      onChange={(e) => handleDropdownChange(row.id, 'tables', e.target.value)}
+                      disabled={!row.database}
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <Box>
+                      <Chip 
+                        label={`${row.columns.length} columns selected`}
+                        variant="outlined"
+                        color="primary"
+                        onClick={() => handleOpenColumnDialog(row)}
+                        sx={{ cursor: 'pointer', mb: 0.5 }}
+                      />
+                      <Typography variant="caption" display="block">
+                        {row.tables.length > 0 ? `From ${row.tables.length} table(s)` : 'Select tables first'}
+                      </Typography>
+                    </Box>
+                  </TableCell>
+                  <TableCell>
+                    <Button 
+                      size="small" 
+                      onClick={() => handleOpenColumnDialog(row)}
+                      disabled={row.tables.length === 0}
+                      startIcon={<ViewColumn />}
+                      fullWidth
+                    >
+                      Select Columns
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </TableContainer>
+      </Card>
+
+      {/* Column Selection Dialog */}
+      <Dialog 
+        open={columnDialogOpen} 
+        onClose={handleCloseColumnDialog}
+        maxWidth="md"
+        fullWidth
+        fullScreen={isMobile}
+      >
+        <DialogTitle>
+          Select Columns
+          <Typography variant="body2" color="text.secondary">
+            Choose columns from the selected tables
+          </Typography>
+        </DialogTitle>
+        <DialogContent dividers sx={{ maxHeight: '60vh', overflow: 'auto' }}>
+          {currentRow && currentRow.tables.length > 0 ? (
+            <Box>
+              <Typography variant="body2" sx={{ mb: 2 }}>
+                Selected tables: {currentRow.tables.join(', ')}
+              </Typography>
+              
+              {currentRow.tables.map((table) => (
+                <Accordion key={table} defaultExpanded sx={{ mb: 1 }}>
+                  <AccordionSummary expandIcon={<ExpandMore />}>
+                    <TableChart sx={{ mr: 1 }} />
+                    <Typography fontWeight="medium">{table}</Typography>
+                    <Chip 
+                      label={`${tableSelections[table]?.length || 0} selected`} 
+                      size="small" 
+                      sx={{ ml: 2 }}
+                    />
+                  </AccordionSummary>
+                  <AccordionDetails>
+                    <List dense sx={{ maxHeight: 200, overflow: 'auto' }}>
+                      {columnOptions[table]?.map((column) => (
+                        <ListItem 
+                          key={column} 
+                          button 
+                          onClick={() => handleToggleColumn(table, column)}
+                        >
+                          <ListItemIcon>
+                            <Checkbox
+                              edge="start"
+                              checked={tableSelections[table]?.includes(column) || false}
+                              tabIndex={-1}
+                              disableRipple
+                            />
+                          </ListItemIcon>
+                          <ListItemText primary={column} />
+                        </ListItem>
+                      ))}
+                    </List>
+                  </AccordionDetails>
+                </Accordion>
+              ))}
+            </Box>
+          ) : (
+            <Typography>No tables selected. Please select tables first.</Typography>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCloseColumnDialog}>Cancel</Button>
+          <Button 
+            onClick={handleSaveColumnSelections} 
+            variant="contained"
+            disabled={!currentRow || currentRow.tables.length === 0}
+          >
+            Save Selections
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Information Footer */}
+      <Box sx={{ mt: 2, p: 2, backgroundColor: '#e8f4f8', borderRadius: 2 }}>
+        <Typography variant="body2" color="text.secondary">
+          <strong>Note:</strong> Select a platform, database, and tables first. Then click "Select Columns" to choose specific columns from each table.
+          The column selection dialog will show you which columns belong to each table.
+        </Typography>
+      </Box>
+    </Box>
+  );
+};
+
+export default DataSources;
