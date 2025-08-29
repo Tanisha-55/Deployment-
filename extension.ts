@@ -105,11 +105,14 @@ class DeploymentAssistantProvider {
                 vscode.LanguageModelChatMessage.User(instructions)
             ];
             
-            // Send request to the language model
-            const chatRequest = model.sendRequest(messages, {}, token);
+            // Create a cancellation token
+            const tokenSource = new vscode.CancellationTokenSource();
+            
+            // Send request to the language model and await the response
+            const chatResponse = await model.sendRequest(messages, {}, tokenSource.token);
             
             let responseText = '';
-            for await (const fragment of chatRequest.text) {
+            for await (const fragment of chatResponse.text) {
                 responseText += fragment;
             }
             
@@ -118,6 +121,9 @@ class DeploymentAssistantProvider {
             } else {
                 await this.cleanseSQLFiles(responseText);
             }
+            
+            // Dispose the token source
+            tokenSource.dispose();
         } catch (error) {
             this.log(`Error in ${stepName}: ${error}`);
             throw error;
@@ -198,16 +204,22 @@ class DeploymentAssistantProvider {
                     vscode.LanguageModelChatMessage.User(`Cleanse this SQL:\n${content}`)
                 ];
                 
-                // Send request to the language model
-                const chatRequest = model.sendRequest(messages, {}, new vscode.CancellationTokenSource().token);
+                // Create a cancellation token
+                const tokenSource = new vscode.CancellationTokenSource();
+                
+                // Send request to the language model and await the response
+                const chatResponse = await model.sendRequest(messages, {}, tokenSource.token);
                 
                 let cleansedContent = '';
-                for await (const fragment of chatRequest.text) {
+                for await (const fragment of chatResponse.text) {
                     cleansedContent += fragment;
                 }
                 
                 fs.writeFileSync(path.join(outputDir, file), cleansedContent);
                 this.log(`Cleansed file saved: ${file}`);
+                
+                // Dispose the token source
+                tokenSource.dispose();
             }
         }
     }
