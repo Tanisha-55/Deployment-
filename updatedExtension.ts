@@ -6,6 +6,7 @@ import * as child_process from 'child_process';
 export function activate(context: vscode.ExtensionContext) {
     const provider = new DeploymentAssistantProvider(context);
     
+    // Register the command
     context.subscriptions.push(
         vscode.commands.registerCommand('deployment-assistant.start', () => {
             provider.startDeployment();
@@ -13,20 +14,20 @@ export function activate(context: vscode.ExtensionContext) {
     );
 
     // Register chat participant if the API is available
-    if (vscode.chat && 'createChatParticipant' in vscode.chat) {
-        try {
+    try {
+        if (vscode.chat && 'createChatParticipant' in vscode.chat) {
             const chatParticipant = vscode.chat.createChatParticipant(
                 'deployment-assistant.chat',
-                (request, context, response, token) => {
+                (request: any, context: vscode.ChatContext, response: vscode.ChatResponseStream, token: vscode.CancellationToken) => {
                     return provider.handleChatRequest(request, context, response, token);
                 }
             );
             
-            chatParticipant.iconPath = vscode.Uri.joinPath(context.extensionUri, 'icon.png');
             context.subscriptions.push(chatParticipant);
-        } catch (error) {
-            console.error('Failed to register chat participant:', error);
+            console.log('Chat participant registered successfully');
         }
+    } catch (error) {
+        console.error('Failed to register chat participant:', error);
     }
 }
 
@@ -51,7 +52,7 @@ class DeploymentAssistantProvider {
     }
 
     async handleChatRequest(
-        request: vscode.ChatRequest,
+        request: any,
         context: vscode.ChatContext,
         response: vscode.ChatResponseStream,
         token: vscode.CancellationToken
@@ -168,56 +169,46 @@ class DeploymentAssistantProvider {
             this.log('Language Model API is available');
             
             this.log('Selecting chat models...');
-            // Try to get a model from the Copilot vendor with a supported family
-            const models = await vscode.lm.selectChatModels({
-                vendor: 'copilot',
-                family: 'gpt-4o' // or try 'gpt-4o-mini' if this fails
+            
+            // Try different model selection strategies
+            let models = await vscode.lm.selectChatModels({
+                vendor: 'GitHub',
+                name: 'copilot'
             });
             
-            this.log(`Found ${models.length} available models`);
+            this.log(`Found ${models.length} models with vendor: GitHub, name: copilot`);
+            
+            // If no models found, try a broader search
+            if (models.length === 0) {
+                models = await vscode.lm.selectChatModels({
+                    vendor: 'GitHub'
+                });
+                this.log(`Found ${models.length} models with vendor: GitHub`);
+            }
+            
+            // If still no models found, try any available model
+            if (models.length === 0) {
+                models = await vscode.lm.selectChatModels({});
+                this.log(`Found ${models.length} total available models`);
+            }
             
             if (models.length === 0) {
-                // If no models are found, try without specifying the family
-                const allModels = await vscode.lm.selectChatModels({ vendor: 'copilot' });
-                this.log(`Found ${allModels.length} models without family filter`);
-                if (allModels.length === 0) {
-                    throw new Error('No Copilot models available. Please ensure you have GitHub Copilot enabled and have given consent for this extension to use it.');
-                }
-                // Use the first model from the unfiltered list
-                const model = allModels[0];
-                this.log(`Using model: ${model.name}`);
-                return await this.sendModelRequest(model, prompt);
+                this.log('No language models available');
+                throw new Error('No language models available. Please ensure you have GitHub Copilot enabled and configured.');
             }
             
-            // Use the first model from the filtered list
+            // Use the first available model
             const model = models[0];
             this.log(`Using model: ${model.name}`);
-            return await this.sendModelRequest(model, prompt);
-        } catch (error) {
-            if (error instanceof vscode.LanguageModelError) {
-                this.log(`Language Model Error: ${error.message}, code: ${error.code}`);
-                if (error.code === 'NoPermissions') {
-                    vscode.window.showErrorMessage('Please grant consent for this extension to use GitHub Copilot. You can do this by enabling Copilot and allowing it in the settings.');
-                    throw new Error('Consent not given for using language models.');
-                }
-                throw new Error(`Language model error: ${error.message}`);
-            } else {
-                this.log(`Error getting Copilot response: ${error}`);
-                throw new Error(`Failed to get response from Copilot: ${error}`);
-            }
-        }
-    }
-
-    private async sendModelRequest(model: vscode.LanguageModelChat, prompt: string): Promise<string> {
-        this.log('Sending request to language model...');
-        const tokenSource = new vscode.CancellationTokenSource();
-        
-        try {
-            const chatResponse = await model.sendRequest(
-                [vscode.LanguageModelChatMessage.User(prompt)],
-                {},
-                tokenSource.token
-            );
+            
+            // Create messages for the language model
+            const messages = [
+                vscode.LanguageModelChatMessage.User(prompt)
+            ];
+            
+            // Send request to the language model
+            this.log('Sending request to language model...');
+            const chatResponse = await model.sendRequest(messages, {}, new vscode.CancellationTokenSource().token);
             
             let responseText = '';
             for await (const fragment of chatResponse.text) {
@@ -227,24 +218,21 @@ class DeploymentAssistantProvider {
             this.log('Received response from language model');
             return responseText;
         } catch (error) {
+            this.log(`Error getting Copilot response: ${error}`);
+            
+            // Check if it's a LanguageModelError
             if (error instanceof vscode.LanguageModelError) {
-                this.log(`Language Model Error during request: ${error.message}, code: ${error.code}`);
-                if (error.code === 'NoPermissions') {
-                    vscode.window.showErrorMessage('Please grant consent for this extension to use GitHub Copilot.');
-                    throw new Error('Consent not given for using language models.');
-                } else if (error.code === 'NoModels') {
-                    throw new Error('No language models are available. Please install GitHub Copilot.');
-                } else if (error.code === 'ResponseTooSlow') {
-                    throw new Error('The response from the language model was too slow. Please try again.');
-                } else {
-                    throw new Error(`Language model error: ${error.message}`);
+                switch (error.code) {
+                    case 'NoPermissions':
+                        throw new Error('No permissions to use language models. Please grant consent for this extension to use GitHub Copilot.');
+                    case 'NoModels':
+                        throw new Error('No language models available. Please install and configure GitHub Copilot.');
+                    default:
+                        throw new Error(`Language model error: ${error.message}`);
                 }
-            } else {
-                this.log(`Error during model request: ${error}`);
-                throw new Error(`Failed to get response from language model: ${error}`);
             }
-        } finally {
-            tokenSource.dispose();
+            
+            throw new Error(`Failed to get response from Copilot: ${error}`);
         }
     }
 
