@@ -3,6 +3,37 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as child_process from 'child_process';
 
+// Define interfaces for the proposed API
+interface ChatParticipant {
+    (request: any, context: any, response: any, token: vscode.CancellationToken): Promise<void>;
+}
+
+interface LanguageModelChatMessage {
+    User(content: string): any;
+}
+
+interface LanguageModelChat {
+    selectChatModels(options: any): Promise<any[]>;
+}
+
+interface ChatAPI {
+    createChatParticipant(id: string, handler: ChatParticipant): any;
+}
+
+// Extend the vscode namespace to include the proposed APIs
+declare module 'vscode' {
+    export namespace chat {
+        export function createChatParticipant(id: string, handler: ChatParticipant): any;
+    }
+    
+    export namespace lm {
+        export function selectChatModels(options: any): Promise<any[]>;
+        export const LanguageModelChatMessage: {
+            User: (content: string) => any;
+        };
+    }
+}
+
 export function activate(context: vscode.ExtensionContext) {
     const provider = new DeploymentAssistantProvider(context);
     
@@ -13,12 +44,13 @@ export function activate(context: vscode.ExtensionContext) {
         })
     );
 
-    // Register chat participant if the API is available
+    // Try to register chat participant if API is available
     try {
-        if (vscode.chat && 'createChatParticipant' in vscode.chat) {
-            const chatParticipant = vscode.chat.createChatParticipant(
+        if ((vscode as any).chat && typeof (vscode as any).chat.createChatParticipant === 'function') {
+            const chatAPI = (vscode as any).chat as ChatAPI;
+            const chatParticipant = chatAPI.createChatParticipant(
                 'deployment-assistant.chat',
-                (request: any, context: vscode.ChatContext, response: vscode.ChatResponseStream, token: vscode.CancellationToken) => {
+                async (request: any, context: any, response: any, token: vscode.CancellationToken) => {
                     return provider.handleChatRequest(request, context, response, token);
                 }
             );
@@ -53,8 +85,8 @@ class DeploymentAssistantProvider {
 
     async handleChatRequest(
         request: any,
-        context: vscode.ChatContext,
-        response: vscode.ChatResponseStream,
+        context: any,
+        response: any,
         token: vscode.CancellationToken
     ): Promise<void> {
         this.log(`Received chat request: ${request.prompt}`);
@@ -161,17 +193,18 @@ class DeploymentAssistantProvider {
             this.log('Checking if Language Model API is available...');
             
             // Check if Language Model API is available
-            if (!vscode.lm) {
+            if (!(vscode as any).lm) {
                 this.log('Language Model API is not available');
                 throw new Error('Language Model API is not available. Please ensure you have the latest VS Code version with Copilot support.');
             }
             
+            const lm = (vscode as any).lm as LanguageModelChat;
             this.log('Language Model API is available');
             
             this.log('Selecting chat models...');
             
             // Try different model selection strategies
-            let models = await vscode.lm.selectChatModels({
+            let models = await lm.selectChatModels({
                 vendor: 'GitHub',
                 name: 'copilot'
             });
@@ -180,7 +213,7 @@ class DeploymentAssistantProvider {
             
             // If no models found, try a broader search
             if (models.length === 0) {
-                models = await vscode.lm.selectChatModels({
+                models = await lm.selectChatModels({
                     vendor: 'GitHub'
                 });
                 this.log(`Found ${models.length} models with vendor: GitHub`);
@@ -188,7 +221,7 @@ class DeploymentAssistantProvider {
             
             // If still no models found, try any available model
             if (models.length === 0) {
-                models = await vscode.lm.selectChatModels({});
+                models = await lm.selectChatModels({});
                 this.log(`Found ${models.length} total available models`);
             }
             
@@ -202,8 +235,9 @@ class DeploymentAssistantProvider {
             this.log(`Using model: ${model.name}`);
             
             // Create messages for the language model
+            const languageModelMessage = (vscode as any).lm.LanguageModelChatMessage as LanguageModelChatMessage;
             const messages = [
-                vscode.LanguageModelChatMessage.User(prompt)
+                languageModelMessage.User(prompt)
             ];
             
             // Send request to the language model
