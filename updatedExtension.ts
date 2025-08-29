@@ -6,11 +6,28 @@ import * as child_process from 'child_process';
 export function activate(context: vscode.ExtensionContext) {
     const provider = new DeploymentAssistantProvider(context);
     
+    // Register the command
     context.subscriptions.push(
         vscode.commands.registerCommand('deployment-assistant.start', () => {
             provider.startDeployment();
         })
     );
+
+    // Register chat participant if available
+    if (typeof (vscode as any).chat?.createChatParticipant === 'function') {
+        try {
+            const chatParticipant = (vscode as any).chat.createChatParticipant(
+                'deployment-assistant',
+                async (request: any, context: any, response: any, token: vscode.CancellationToken) => {
+                    return provider.handleRequest(request, context, response, token);
+                }
+            );
+            
+            context.subscriptions.push(chatParticipant);
+        } catch (error) {
+            console.error('Failed to create chat participant:', error);
+        }
+    }
 }
 
 class DeploymentAssistantProvider {
@@ -30,6 +47,25 @@ class DeploymentAssistantProvider {
         } catch (error) {
             vscode.window.showErrorMessage(`Deployment automation failed: ${error}`);
             this.log(`Deployment automation failed: ${error}`);
+        }
+    }
+
+    async handleRequest(
+        request: any,
+        context: any,
+        response: any,
+        token: vscode.CancellationToken
+    ): Promise<void> {
+        // Handle chat requests
+        this.log(`Received chat request: ${request.prompt}`);
+        
+        // Show a response in the chat
+        response.markdown('Deployment Assistant is ready. Use the command palette to start automation.');
+        
+        // If the user asks to start deployment, execute it
+        if (request.prompt.toLowerCase().includes('start deployment')) {
+            response.markdown('Starting deployment automation...');
+            this.startDeployment();
         }
     }
 
