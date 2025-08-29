@@ -6,7 +6,8 @@ import {
   Typography,
   Chip,
   GridLegacy as Grid,
-  Link
+  Link,
+  Divider
 } from "@mui/material";
 import {
   CalendarToday,
@@ -43,58 +44,80 @@ const DatasetOverview = ({ dataset }) => {
         <Grid item xs={12} md={6}>
           <Card sx={{ borderRadius: 2, height: "100%" }}>
             <CardContent>
-              <Box display="flex" alignItems="center" mb={2}>
-                <Update sx={{ mr: 1, color: "primary.main" }} />
-                <Typography variant="h6" fontWeight="600">
-                  Update Frequency
+              {/* Update Frequency */}
+              <Box display="flex" alignItems="center" justifyContent="space-between" mb={3}>
+                <Box display="flex" alignItems="center">
+                  <Update sx={{ mr: 1, color: "primary.main" }} />
+                  <Typography variant="subtitle1" fontWeight="600">
+                    Update Frequency:
+                  </Typography>
+                </Box>
+                <Typography variant="body1">
+                  {dataset.updateFrequency}
                 </Typography>
               </Box>
-              <Typography variant="body1" mb={3}>
-                {dataset.updateFrequency}
-              </Typography>
               
-              <Box display="flex" alignItems="center" mb={2}>
-                <Security sx={{ mr: 1, color: "primary.main" }} />
-                <Typography variant="h6" fontWeight="600">
-                  NFR Risk
-                </Typography>
-              </Box>
-              <Chip 
-                label={dataset.nfrRisk} 
-                color={riskColors[dataset.nfrRisk] || "default"} 
-                size="medium"
-                sx={{ mb: 3 }}
-              />
+              <Divider sx={{ mb: 3 }} />
               
-              <Box display="flex" alignItems="center" mb={2}>
-                <Person sx={{ mr: 1, color: "primary.main" }} />
-                <Typography variant="h6" fontWeight="600">
-                  Owner
-                </Typography>
+              {/* NFR Risk */}
+              <Box display="flex" alignItems="center" justifyContent="space-between" mb={3}>
+                <Box display="flex" alignItems="center">
+                  <Security sx={{ mr: 1, color: "primary.main" }} />
+                  <Typography variant="subtitle1" fontWeight="600">
+                    NFR Risk:
+                  </Typography>
+                </Box>
+                <Chip 
+                  label={dataset.nfrRisk} 
+                  color={riskColors[dataset.nfrRisk] || "default"} 
+                  size="small"
+                />
               </Box>
-              <Typography variant="body1" mb={3}>
-                {dataset.owner}
-              </Typography>
               
-              <Box display="flex" alignItems="center" mb={2}>
-                <Group sx={{ mr: 1, color: "primary.main" }} />
-                <Typography variant="h6" fontWeight="600">
-                  Steward
-                </Typography>
-              </Box>
-              <Typography variant="body1" mb={3}>
-                {dataset.steward}
-              </Typography>
+              <Divider sx={{ mb: 3 }} />
               
-              <Box display="flex" alignItems="center" mb={2}>
-                <Badge sx={{ mr: 1, color: "primary.main" }} />
-                <Typography variant="h6" fontWeight="600">
-                  Creator
+              {/* Owner */}
+              <Box display="flex" alignItems="center" justifyContent="space-between" mb={3}>
+                <Box display="flex" alignItems="center">
+                  <Person sx={{ mr: 1, color: "primary.main" }} />
+                  <Typography variant="subtitle1" fontWeight="600">
+                    Owner:
+                  </Typography>
+                </Box>
+                <Typography variant="body1">
+                  {dataset.owner}
                 </Typography>
               </Box>
-              <Typography variant="body1">
-                {dataset.creator}
-              </Typography>
+              
+              <Divider sx={{ mb: 3 }} />
+              
+              {/* Steward */}
+              <Box display="flex" alignItems="center" justifyContent="space-between" mb={3}>
+                <Box display="flex" alignItems="center">
+                  <Group sx={{ mr: 1, color: "primary.main" }} />
+                  <Typography variant="subtitle1" fontWeight="600">
+                    Steward:
+                  </Typography>
+                </Box>
+                <Typography variant="body1">
+                  {dataset.steward}
+                </Typography>
+              </Box>
+              
+              <Divider sx={{ mb: 3 }} />
+              
+              {/* Creator */}
+              <Box display="flex" alignItems="center" justifyContent="space-between">
+                <Box display="flex" alignItems="center">
+                  <Badge sx={{ mr: 1, color: "primary.main" }} />
+                  <Typography variant="subtitle1" fontWeight="600">
+                    Creator:
+                  </Typography>
+                </Box>
+                <Typography variant="body1">
+                  {dataset.creator}
+                </Typography>
+              </Box>
             </CardContent>
           </Card>
         </Grid>
@@ -103,69 +126,97 @@ const DatasetOverview = ({ dataset }) => {
         <Grid item xs={12} md={6}>
           <Card sx={{ borderRadius: 2, height: "100%" }}>
             <CardContent>
-              <Box display="flex" alignItems="center" mb={2}>
-                <CalendarToday sx={{ mr: 1, color: "primary.main" }} />
-                <Typography variant="h6" fontWeight="600">
-                  Creation Date
+              {/* Creation Date */}
+              <Box display="flex" alignItems="center" justifyContent="space-between" mb={3}>
+                <Box display="flex" alignItems="center">
+                  <CalendarToday sx={{ mr: 1, color: "primary.main" }} />
+                  <Typography variant="subtitle1" fontWeight="600">
+                    Creation Date:
+                  </Typography>
+                </Box>
+                <Typography variant="body1">
+                  {dataset.creationDate}
                 </Typography>
               </Box>
-              <Typography variant="body1" mb={3}>
-                {dataset.creationDate}
-              </Typography>
               
-              <Box display="flex" alignItems="center" mb={2}>
-                <Inventory sx={{ mr: 1, color: "primary.main" }} />
-                <Typography variant="h6" fontWeight="600">
-                  Inventoried Date
-                </Typography>
-              </Box>
-              <Typography variant="body1" mb={3}>
-                {dataset.inventoriedDate}
-              </Typography>
+              <Divider sx={{ mb: 3 }} />
               
-              <Box display="flex" alignItems="center" mb={2}>
-                <Reviews sx={{ mr: 1, color: "primary.main" }} />
-                <Typography variant="h6" fontWeight="600">
-                  DDLC Reviewed Date
+              {/* Inventoried Date */}
+              <Box display="flex" alignItems="center" justifyContent="space-between" mb={3}>
+                <Box display="flex" alignItems="center">
+                  <Inventory sx={{ mr: 1, color: "primary.main" }} />
+                  <Typography variant="subtitle1" fontWeight="600">
+                    Inventoried Date:
+                  </Typography>
+                </Box>
+                <Typography variant="body1">
+                  {dataset.inventoriedDate}
                 </Typography>
               </Box>
-              <Typography variant="body1" mb={3}>
-                {dataset.ddlcReviewedDate}
-              </Typography>
               
-              <Box display="flex" alignItems="center" mb={2}>
-                <EditCalendar sx={{ mr: 1, color: "primary.main" }} />
-                <Typography variant="h6" fontWeight="600">
-                  Modified By
-                </Typography>
-              </Box>
-              <Typography variant="body1" mb={3}>
-                {dataset.modifiedBy}
-              </Typography>
+              <Divider sx={{ mb: 3 }} />
               
-              <Box display="flex" alignItems="center" mb={2}>
-                <CalendarToday sx={{ mr: 1, color: "primary.main" }} />
-                <Typography variant="h6" fontWeight="600">
-                  Modified Date
+              {/* DDLC Reviewed Date */}
+              <Box display="flex" alignItems="center" justifyContent="space-between" mb={3}>
+                <Box display="flex" alignItems="center">
+                  <Reviews sx={{ mr: 1, color: "primary.main" }} />
+                  <Typography variant="subtitle1" fontWeight="600">
+                    DDLC Reviewed Date:
+                  </Typography>
+                </Box>
+                <Typography variant="body1">
+                  {dataset.ddlcReviewedDate}
                 </Typography>
               </Box>
-              <Typography variant="body1" mb={3}>
-                {dataset.modifiedDate}
-              </Typography>
               
-              <Box display="flex" alignItems="center" mb={2}>
-                <LinkIcon sx={{ mr: 1, color: "primary.main" }} />
-                <Typography variant="h6" fontWeight="600">
-                  Documentation
+              <Divider sx={{ mb: 3 }} />
+              
+              {/* Modified By */}
+              <Box display="flex" alignItems="center" justifyContent="space-between" mb={3}>
+                <Box display="flex" alignItems="center">
+                  <EditCalendar sx={{ mr: 1, color: "primary.main" }} />
+                  <Typography variant="subtitle1" fontWeight="600">
+                    Modified By:
+                  </Typography>
+                </Box>
+                <Typography variant="body1">
+                  {dataset.modifiedBy}
                 </Typography>
               </Box>
-              <Link
-                href={dataset.documentationUrl}
-                target="_blank"
-                rel="noopener"
-              >
-                View Documentation
-              </Link>
+              
+              <Divider sx={{ mb: 3 }} />
+              
+              {/* Modified Date */}
+              <Box display="flex" alignItems="center" justifyContent="space-between" mb={3}>
+                <Box display="flex" alignItems="center">
+                  <CalendarToday sx={{ mr: 1, color: "primary.main" }} />
+                  <Typography variant="subtitle1" fontWeight="600">
+                    Modified Date:
+                  </Typography>
+                </Box>
+                <Typography variant="body1">
+                  {dataset.modifiedDate}
+                </Typography>
+              </Box>
+              
+              <Divider sx={{ mb: 3 }} />
+              
+              {/* Documentation */}
+              <Box display="flex" alignItems="center" justifyContent="space-between">
+                <Box display="flex" alignItems="center">
+                  <LinkIcon sx={{ mr: 1, color: "primary.main" }} />
+                  <Typography variant="subtitle1" fontWeight="600">
+                    Documentation:
+                  </Typography>
+                </Box>
+                <Link
+                  href={dataset.documentationUrl}
+                  target="_blank"
+                  rel="noopener"
+                >
+                  View
+                </Link>
+              </Box>
             </CardContent>
           </Card>
         </Grid>
