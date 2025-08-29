@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
-import { exec } from 'child_process';
+import * as child_process from 'child_process';
 
 export function activate(context: vscode.ExtensionContext) {
     const provider = new DeploymentAssistantProvider(context);
@@ -14,9 +14,15 @@ export function activate(context: vscode.ExtensionContext) {
         }
     );
     
-    chatParticipant.iconPath = vscode.Uri.file(
-        path.join(context.extensionPath, 'icon.png')
-    );
+    // Set icon if available
+    try {
+        const iconPath = path.join(context.extensionPath, 'resources', 'icon.png');
+        if (fs.existsSync(iconPath)) {
+            chatParticipant.iconPath = vscode.Uri.file(iconPath);
+        }
+    } catch (error) {
+        console.warn('Could not set icon for chat participant:', error);
+    }
     
     context.subscriptions.push(
         vscode.commands.registerCommand('deployment-assistant.start', () => {
@@ -35,9 +41,15 @@ class DeploymentAssistantProvider {
 
     async startDeployment() {
         this.log('Starting deployment automation...');
-        await this.processStep('readcsvscript.md', 'CSV Analysis');
-        await this.processStep('cleansingscripts.md', 'SQL Cleansing');
-        this.log('Deployment automation completed!');
+        try {
+            await this.processStep('readcsvscript.md', 'CSV Analysis');
+            await this.processStep('cleansingscripts.md', 'SQL Cleansing');
+            vscode.window.showInformationMessage('Deployment automation completed successfully!');
+            this.log('Deployment automation completed!');
+        } catch (error) {
+            vscode.window.showErrorMessage(`Deployment automation failed: ${error}`);
+            this.log(`Deployment automation failed: ${error}`);
+        }
     }
 
     async handleRequest(
@@ -46,16 +58,31 @@ class DeploymentAssistantProvider {
         progress: vscode.Progress<vscode.ChatResponseProgress>,
         token: vscode.CancellationToken
     ): Promise<vscode.ChatResponse> {
-        // Handle chat requests if needed
+        // Handle chat requests
+        this.log(`Received chat request: ${request.prompt}`);
+        
         return { 
-            messages: [vscode.ChatResponseMessage.Text('Deployment Assistant is ready. Use the command palette to start automation.')]
+            messages: [{
+                content: new vscode.MarkdownString('Deployment Assistant is ready. Use the command palette to start automation.')
+            }]
         };
     }
 
     private async processStep(mdFile: string, stepName: string) {
         try {
             this.log(`Processing step: ${stepName}`);
+            
+            // Check if the markdown file exists
+            if (!fs.existsSync(mdFile)) {
+                throw new Error(`Markdown file ${mdFile} not found`);
+            }
+            
             const instructions = await this.readMarkdownFile(mdFile);
+            
+            // Check if Language Model API is available
+            if (!vscode.lm) {
+                throw new Error('Language Model API is not available. Please ensure you have the correct VS Code version.');
+            }
             
             // Use the chat API to process the instructions
             const messages = [
@@ -81,14 +108,19 @@ class DeploymentAssistantProvider {
             }
         } catch (error) {
             this.log(`Error in ${stepName}: ${error}`);
-            vscode.window.showErrorMessage(`Error in ${stepName}: ${error}`);
+            throw error;
         }
     }
 
     private async generateShellScript(llmResponse: string) {
         this.log('Generating shell script...');
         fs.writeFileSync('gendb2ddl.sh', llmResponse);
-        fs.chmodSync('gendb2ddl.sh', 0o755); // Make it executable
+        
+        // Make it executable (Unix/Linux/Mac)
+        if (process.platform !== 'win32') {
+            fs.chmodSync('gendb2ddl.sh', 0o755);
+        }
+        
         await this.executeShellScript();
     }
 
@@ -97,10 +129,11 @@ class DeploymentAssistantProvider {
         const commands = fs.readFileSync('gendb2ddl.sh', 'utf-8').split('\n');
         
         for (const cmd of commands) {
-            if (cmd.trim() && !cmd.trim().startsWith('#')) {
-                this.log(`Executing: ${cmd}`);
+            const trimmedCmd = cmd.trim();
+            if (trimmedCmd && !trimmedCmd.startsWith('#')) {
+                this.log(`Executing: ${trimmedCmd}`);
                 await new Promise((resolve, reject) => {
-                    exec(cmd, (error, stdout, stderr) => {
+                    child_process.exec(trimmedCmd, (error, stdout, stderr) => {
                         if (error) {
                             this.log(`Error executing command: ${error}`);
                             reject(error);
@@ -121,8 +154,7 @@ class DeploymentAssistantProvider {
         const outputDir = 'scriptedfiles/';
         
         if (!fs.existsSync(rawDir)) {
-            this.log('Raw DDL scripts directory not found!');
-            return;
+            throw new Error('Raw DDL scripts directory not found!');
         }
         
         if (!fs.existsSync(outputDir)) {
