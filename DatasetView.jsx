@@ -11,9 +11,6 @@ import {
   Chip
 } from '@mui/material';
 import {
-  Edit,
-  Download,
-  Share,
   Description,
   TableChart
 } from '@mui/icons-material';
@@ -120,23 +117,6 @@ const DatasetView = () => {
                 color={statusColors[dataset.status] || 'default'} 
                 size="medium"
               />
-            </Box>
-            <Box display="flex" gap={1}>
-              <Tooltip title="Edit">
-                <IconButton color="primary">
-                  <Edit />
-                </IconButton>
-              </Tooltip>
-              <Tooltip title="Download">
-                <IconButton color="primary">
-                  <Download />
-                </IconButton>
-              </Tooltip>
-              <Tooltip title="Share">
-                <IconButton color="primary">
-                  <Share />
-                </IconButton>
-              </Tooltip>
             </Box>
           </Box>
           
