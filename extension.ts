@@ -9,8 +9,8 @@ export function activate(context: vscode.ExtensionContext) {
     // Create the chat participant
     const chatParticipant = vscode.chat.createChatParticipant(
         'deployment-assistant.deploymentAssistant',
-        async (request, context, progress, token) => {
-            return provider.handleRequest(request, context, progress, token);
+        async (request, context, response, token) => {
+            return provider.handleRequest(request, context, response, token);
         }
     );
     
@@ -55,17 +55,20 @@ class DeploymentAssistantProvider {
     async handleRequest(
         request: vscode.ChatRequest,
         context: vscode.ChatContext,
-        progress: vscode.Progress<vscode.ChatResponseProgress>,
+        response: vscode.ChatResponseStream,
         token: vscode.CancellationToken
-    ): Promise<vscode.ChatResponse> {
+    ): Promise<void> {
         // Handle chat requests
         this.log(`Received chat request: ${request.prompt}`);
         
-        return { 
-            messages: [{
-                content: new vscode.MarkdownString('Deployment Assistant is ready. Use the command palette to start automation.')
-            }]
-        };
+        // Show a response in the chat
+        response.markdown('Deployment Assistant is ready. Use the command palette to start automation.');
+        
+        // If the user asks to start deployment, execute it
+        if (request.prompt.toLowerCase().includes('start deployment')) {
+            response.markdown('Starting deployment automation...');
+            this.startDeployment();
+        }
     }
 
     private async processStep(mdFile: string, stepName: string) {
@@ -84,20 +87,29 @@ class DeploymentAssistantProvider {
                 throw new Error('Language Model API is not available. Please ensure you have the correct VS Code version.');
             }
             
-            // Use the chat API to process the instructions
+            // Get available language models
+            const models = await vscode.lm.selectChatModels({
+                vendor: 'copilot',
+                family: 'gpt-4'
+            });
+            
+            if (models.length === 0) {
+                throw new Error('No suitable language models available');
+            }
+            
+            // Use the first available model
+            const model = models[0];
+            
+            // Create messages for the language model
             const messages = [
                 vscode.LanguageModelChatMessage.User(instructions)
             ];
             
-            const chatResponse = await vscode.lm.sendChatRequest(
-                vscode.LanguageModelChatSelector.defaul(),
-                messages,
-                {},
-                new vscode.CancellationTokenSource().token
-            );
+            // Send request to the language model
+            const chatRequest = model.sendRequest(messages, {}, token);
             
             let responseText = '';
-            for await (const fragment of chatResponse.text) {
+            for await (const fragment of chatRequest.text) {
                 responseText += fragment;
             }
             
@@ -167,21 +179,30 @@ class DeploymentAssistantProvider {
                 this.log(`Processing file: ${file}`);
                 const content = fs.readFileSync(path.join(rawDir, file), 'utf-8');
                 
-                // Use the chat API to cleanse the SQL
+                // Get available language models
+                const models = await vscode.lm.selectChatModels({
+                    vendor: 'copilot',
+                    family: 'gpt-4'
+                });
+                
+                if (models.length === 0) {
+                    throw new Error('No suitable language models available for cleansing');
+                }
+                
+                // Use the first available model
+                const model = models[0];
+                
+                // Create messages for the language model
                 const messages = [
                     vscode.LanguageModelChatMessage.User(instructions),
                     vscode.LanguageModelChatMessage.User(`Cleanse this SQL:\n${content}`)
                 ];
                 
-                const chatResponse = await vscode.lm.sendChatRequest(
-                    vscode.LanguageModelChatSelector.defaul(),
-                    messages,
-                    {},
-                    new vscode.CancellationTokenSource().token
-                );
+                // Send request to the language model
+                const chatRequest = model.sendRequest(messages, {}, new vscode.CancellationTokenSource().token);
                 
                 let cleansedContent = '';
-                for await (const fragment of chatResponse.text) {
+                for await (const fragment of chatRequest.text) {
                     cleansedContent += fragment;
                 }
                 
