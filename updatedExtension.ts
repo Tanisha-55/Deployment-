@@ -13,9 +13,9 @@ export function activate(context: vscode.ExtensionContext) {
         })
     );
 
-    // Register chat participant if available
-    if (typeof (vscode as any).chat?.createChatParticipant === 'function') {
-        try {
+    // Try to register chat participant if API is available
+    try {
+        if ((vscode as any).chat && (vscode as any).chat.createChatParticipant) {
             const chatParticipant = (vscode as any).chat.createChatParticipant(
                 'deployment-assistant',
                 async (request: any, context: any, response: any, token: vscode.CancellationToken) => {
@@ -24,9 +24,10 @@ export function activate(context: vscode.ExtensionContext) {
             );
             
             context.subscriptions.push(chatParticipant);
-        } catch (error) {
-            console.error('Failed to create chat participant:', error);
+            console.log('Chat participant registered successfully');
         }
+    } catch (error) {
+        console.error('Failed to register chat participant:', error);
     }
 }
 
@@ -56,13 +57,10 @@ class DeploymentAssistantProvider {
         response: any,
         token: vscode.CancellationToken
     ): Promise<void> {
-        // Handle chat requests
         this.log(`Received chat request: ${request.prompt}`);
         
-        // Show a response in the chat
         response.markdown('Deployment Assistant is ready. Use the command palette to start automation.');
         
-        // If the user asks to start deployment, execute it
         if (request.prompt.toLowerCase().includes('start deployment')) {
             response.markdown('Starting deployment automation...');
             this.startDeployment();
@@ -72,37 +70,57 @@ class DeploymentAssistantProvider {
     private async processCSVAnalysis() {
         this.log('Processing CSV Analysis with Copilot...');
         
-        // Read the CSV file
-        const csvContent = fs.readFileSync('Script_Metadata.csv', 'utf-8');
+        // Get the workspace folder
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+        if (!workspaceFolder) {
+            throw new Error('No workspace folder found');
+        }
         
-        // Read the instructions from markdown
-        const instructions = fs.readFileSync('readcsvscript.md', 'utf-8');
+        const workspacePath = workspaceFolder.uri.fsPath;
+        
+        // Read the CSV file from workspace
+        const csvPath = path.join(workspacePath, 'Script_Metadata.csv');
+        const csvContent = fs.readFileSync(csvPath, 'utf-8');
+        
+        // Read the instructions from markdown in workspace
+        const instructionsPath = path.join(workspacePath, 'readcsvscript.md');
+        const instructions = fs.readFileSync(instructionsPath, 'utf-8');
         
         // Get the shell script from Copilot
         const shellScript = await this.getCopilotResponse(
             `${instructions}\n\nCSV Content:\n${csvContent}`
         );
         
-        // Save the generated shell script
-        fs.writeFileSync('gendb2ddl.sh', shellScript);
+        // Save the generated shell script to workspace
+        const scriptPath = path.join(workspacePath, 'gendb2ddl.sh');
+        fs.writeFileSync(scriptPath, shellScript);
         
         // Make it executable (Unix/Linux/Mac)
         if (process.platform !== 'win32') {
-            fs.chmodSync('gendb2ddl.sh', 0o755);
+            fs.chmodSync(scriptPath, 0o755);
         }
         
         // Execute the shell script
-        await this.executeShellScript();
+        await this.executeShellScript(workspacePath);
     }
 
     private async processSQLCleansing() {
         this.log('Processing SQL Cleansing with Copilot...');
         
-        // Read the cleansing instructions
-        const instructions = fs.readFileSync('cleansingscripts.md', 'utf-8');
+        // Get the workspace folder
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+        if (!workspaceFolder) {
+            throw new Error('No workspace folder found');
+        }
         
-        const rawDir = 'rawddlscripts/';
-        const outputDir = 'scriptedfiles/';
+        const workspacePath = workspaceFolder.uri.fsPath;
+        
+        // Read the cleansing instructions from workspace
+        const instructionsPath = path.join(workspacePath, 'cleansingscripts.md');
+        const instructions = fs.readFileSync(instructionsPath, 'utf-8');
+        
+        const rawDir = path.join(workspacePath, 'rawddlscripts/');
+        const outputDir = path.join(workspacePath, 'scriptedfiles/');
         
         if (!fs.existsSync(rawDir)) {
             throw new Error('Raw DDL scripts directory not found!');
@@ -169,16 +187,20 @@ class DeploymentAssistantProvider {
         }
     }
 
-    private async executeShellScript() {
+    private async executeShellScript(workspacePath: string) {
         this.log('Executing shell script...');
-        const commands = fs.readFileSync('gendb2ddl.sh', 'utf-8').split('\n');
+        
+        const scriptPath = path.join(workspacePath, 'gendb2ddl.sh');
+        const commands = fs.readFileSync(scriptPath, 'utf-8').split('\n');
         
         for (const cmd of commands) {
             const trimmedCmd = cmd.trim();
             if (trimmedCmd && !trimmedCmd.startsWith('#')) {
                 this.log(`Executing: ${trimmedCmd}`);
+                
+                // Execute command in the workspace directory
                 await new Promise((resolve, reject) => {
-                    child_process.exec(trimmedCmd, (error, stdout, stderr) => {
+                    child_process.exec(trimmedCmd, { cwd: workspacePath }, (error, stdout, stderr) => {
                         if (error) {
                             this.log(`Error executing command: ${error}`);
                             reject(error);
