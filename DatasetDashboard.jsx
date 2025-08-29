@@ -11,7 +11,6 @@ import {
   TableContainer,
   TableHead,
   TableRow,
-  TextField,
   Typography,
   Chip,
   IconButton,
@@ -25,7 +24,9 @@ import {
   AvatarGroup,
   LinearProgress,
   alpha,
-  useTheme
+  useTheme,
+  Link,
+  TextField
 } from '@mui/material';
 import {
   Add,
@@ -39,7 +40,7 @@ import {
   Visibility,
   Edit
 } from '@mui/icons-material';
-import { Link } from 'react-router-dom';
+import { Link as RouterLink } from 'react-router-dom';
 
 const DatasetDashboard = () => {
   const [filterOwner, setFilterOwner] = useState('');
@@ -49,7 +50,7 @@ const DatasetDashboard = () => {
   const [endDate, setEndDate] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [datasets, setDatasets] = useState([]);
-  const [viewMode, setViewMode] = useState('table'); // 'table' or 'grid'
+  const [viewMode, setViewMode] = useState('table');
   const theme = useTheme();
 
   // Load datasets from localStorage on component mount
@@ -70,7 +71,11 @@ const DatasetDashboard = () => {
           status: 'Active',
           progress: 85,
           size: '2.4 GB',
-          access: ['A', 'B', 'C']
+          access: ['A', 'B', 'C'],
+          createdBy: 'current_user',
+          description: 'Climate data collected throughout 2023 from various weather stations',
+          frequency: 'Monthly',
+          tags: ['Climate', 'Weather', '2023']
         },
         { 
           id: 'DS-67890', 
@@ -80,38 +85,12 @@ const DatasetDashboard = () => {
           status: 'Inactive',
           progress: 42,
           size: '1.2 GB',
-          access: ['A', 'D']
-        },
-        { 
-          id: 'DS-11223', 
-          title: 'Atmospheric Data', 
-          owner: 'Dr. Isabella Patel', 
-          modified: '2024-02-01', 
-          status: 'Active',
-          progress: 100,
-          size: '3.1 GB',
-          access: ['A', 'B', 'E', 'F']
-        },
-        { 
-          id: 'DS-44556', 
-          title: 'Geological Data', 
-          owner: 'Dr. Oliver Hayes', 
-          modified: '2023-11-10', 
-          status: 'Active',
-          progress: 67,
-          size: '4.5 GB',
-          access: ['A', 'G']
-        },
-        { 
-          id: 'DS-77889', 
-          title: 'Ecological Data', 
-          owner: 'Prof. Sofia Rossi', 
-          modified: '2024-01-25', 
-          status: 'Inactive',
-          progress: 29,
-          size: '0.8 GB',
-          access: ['A', 'B', 'H']
-        },
+          access: ['A', 'D'],
+          createdBy: 'current_user',
+          description: 'Oceanographic measurements from research vessels',
+          frequency: 'Weekly',
+          tags: ['Ocean', 'Research']
+        }
       ];
       setDatasets(defaultDatasets);
       localStorage.setItem('datasets', JSON.stringify(defaultDatasets));
@@ -136,7 +115,7 @@ const DatasetDashboard = () => {
       matchesSearch &&
       (filterOwner === '' || dataset.owner.includes(filterOwner)) &&
       (filterStatus === '' || dataset.status === filterStatus) &&
-      (filterFrequency === '' || true) && // Add frequency filter if needed
+      (filterFrequency === '' || dataset.frequency === filterFrequency) &&
       (startDate === '' || dataset.modified >= startDate) &&
       (endDate === '' || dataset.modified <= endDate)
     );
@@ -160,13 +139,13 @@ const DatasetDashboard = () => {
             Datasets
           </Typography>
           <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-            Manage and organize your datasets
+            Manage and organize your research datasets
           </Typography>
         </Box>
         <Button 
           variant="contained" 
           startIcon={<Add />} 
-          component={Link}
+          component={RouterLink}
           to="/create-dataset"
           sx={{ 
             borderRadius: 2,
@@ -181,7 +160,7 @@ const DatasetDashboard = () => {
 
       {/* Stats Cards */}
       <Grid container spacing={2} sx={{ mb: 4 }}>
-        <Grid item xs={12} sm={6} md={4}>
+        <Grid item xs={12} sm={6} md={3}>
           <Card sx={{ 
             borderRadius: 3, 
             boxShadow: '0 4px 20px rgba(0,0,0,0.05)',
@@ -202,7 +181,7 @@ const DatasetDashboard = () => {
             </CardContent>
           </Card>
         </Grid>
-        <Grid item xs={12} sm={6} md={4}>
+        <Grid item xs={12} sm={6} md={3}>
           <Card sx={{ 
             borderRadius: 3, 
             boxShadow: '0 4px 20px rgba(0,0,0,0.05)',
@@ -223,7 +202,29 @@ const DatasetDashboard = () => {
             </CardContent>
           </Card>
         </Grid>
-        <Grid item xs={12} sm={6} md={4}>
+        <Grid item xs={12} sm={6} md={3}>
+          <Card sx={{ 
+            borderRadius: 3, 
+            boxShadow: '0 4px 20px rgba(0,0,0,0.05)',
+            background: 'linear-gradient(135deg, #f6f9fc, #fff)'
+          }}>
+            <CardContent sx={{ p: 3 }}>
+              <Typography color="text.secondary" variant="body2" gutterBottom>
+                Storage Used
+              </Typography>
+              <Typography variant="h4" fontWeight="600">
+                12.5 GB
+              </Typography>
+              <LinearProgress 
+                variant="determinate" 
+                value={65} 
+                sx={{ mt: 1, borderRadius: 5, height: 6 }}
+                color="primary"
+              />
+            </CardContent>
+          </Card>
+        </Grid>
+        <Grid item xs={12} sm={6} md={3}>
           <Card sx={{ 
             borderRadius: 3, 
             boxShadow: '0 4px 20px rgba(0,0,0,0.05)',
@@ -262,6 +263,9 @@ const DatasetDashboard = () => {
               <IconButton size="small" onClick={clearFilters}>
                 <Refresh />
               </IconButton>
+              <IconButton size="small" sx={{ ml: 1 }}>
+                <FilterList />
+              </IconButton>
             </Box>
           </Box>
           
@@ -281,7 +285,7 @@ const DatasetDashboard = () => {
           />
           
           <Grid container spacing={2}>
-            <Grid item xs={12} sm={6} md={6}>
+            <Grid item xs={12} sm={6} md={3}>
               <FormControl fullWidth>
                 <InputLabel>Dataset Owner</InputLabel>
                 <Select
@@ -297,7 +301,7 @@ const DatasetDashboard = () => {
               </FormControl>
             </Grid>
             
-            <Grid item xs={12} sm={6} md={6}>
+            <Grid item xs={12} sm={6} md={3}>
               <FormControl fullWidth>
                 <InputLabel>Dataset Status</InputLabel>
                 <Select
@@ -312,8 +316,79 @@ const DatasetDashboard = () => {
                 </Select>
               </FormControl>
             </Grid>
+            
+            <Grid item xs={12} sm={6} md={3}>
+              <FormControl fullWidth>
+                <InputLabel>Update Frequency</InputLabel>
+                <Select
+                  value={filterFrequency}
+                  label="Update Frequency"
+                  onChange={(e) => setFilterFrequency(e.target.value)}
+                >
+                  <MenuItem value="">All Frequencies</MenuItem>
+                  <MenuItem value="Daily">Daily</MenuItem>
+                  <MenuItem value="Weekly">Weekly</MenuItem>
+                  <MenuItem value="Monthly">Monthly</MenuItem>
+                </Select>
+              </FormControl>
+            </Grid>
+            
+            <Grid item xs={12} sm={6} md={3}>
+              <Box display="flex" gap={1}>
+                <Button 
+                  variant={viewMode === 'table' ? 'contained' : 'outlined'} 
+                  onClick={() => setViewMode('table')}
+                  startIcon={<ViewList />}
+                  fullWidth
+                >
+                  Table
+                </Button>
+                <Button 
+                  variant={viewMode === 'grid' ? 'contained' : 'outlined'} 
+                  onClick={() => setViewMode('grid')}
+                  startIcon={<ViewModule />}
+                  fullWidth
+                >
+                  Grid
+                </Button>
+              </Box>
+            </Grid>
           </Grid>
           
+          <Grid container spacing={2} sx={{ mt: 0.5 }}>
+            <Grid item xs={12} sm={6} md={4}>
+              <TextField
+                fullWidth
+                label="Start Date"
+                type="date"
+                InputLabelProps={{ shrink: true }}
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+              />
+            </Grid>
+            
+            <Grid item xs={12} sm={6} md={4}>
+              <TextField
+                fullWidth
+                label="End Date"
+                type="date"
+                InputLabelProps={{ shrink: true }}
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+              />
+            </Grid>
+            
+            <Grid item xs={12} sm={12} md={4} sx={{ display: 'flex', alignItems: 'flex-end' }}>
+              <Button 
+                variant="outlined" 
+                onClick={clearFilters}
+                fullWidth
+                sx={{ py: 1.5 }}
+              >
+                Clear Filters
+              </Button>
+            </Grid>
+          </Grid>
         </CardContent>
       </Card>
 
@@ -322,6 +397,9 @@ const DatasetDashboard = () => {
         <Typography variant="body2" color="text.secondary">
           Showing {filteredDatasets.length} of {datasets.length} datasets
         </Typography>
+        <IconButton size="small">
+          <MoreVert />
+        </IconButton>
       </Box>
 
       {/* Datasets Table */}
@@ -338,11 +416,11 @@ const DatasetDashboard = () => {
             <TableHead>
               <TableRow sx={{ backgroundColor: alpha(theme.palette.primary.main, 0.05) }}>
                 <TableCell sx={{ fontWeight: '600', py: 2 }}>Dataset ID</TableCell>
-                <TableCell sx={{ fontWeight: '600', py: 2 }}>Title</TableCell>
-                <TableCell sx={{ fontWeight: '600', py: 2 }}>Owner</TableCell>
-                <TableCell sx={{ fontWeight: '600', py: 2 }}>Last Modified</TableCell>
+                <TableCell sx={{ fontWeight: '600', py: 2 }}>Dataset Title</TableCell>
+                <TableCell sx={{ fontWeight: '600', py: 2 }}>Dataset Owner</TableCell>
+                <TableCell sx={{ fontWeight: '600', py: 2 }}>Last Modified Date</TableCell>
                 <TableCell sx={{ fontWeight: '600', py: 2 }}>Status</TableCell>
-                {/* <TableCell sx={{ fontWeight: '600', py: 2 }} align="right">Actions</TableCell> */}
+                <TableCell sx={{ fontWeight: '600', py: 2 }}>Actions</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
@@ -355,7 +433,22 @@ const DatasetDashboard = () => {
                     transition: 'background-color 0.2s'
                   }}
                 >
-                  <TableCell sx={{ fontWeight: '500' }}>{dataset.id}</TableCell>
+                  <TableCell>
+                    <Link 
+                      component={RouterLink} 
+                      to={`/datasets/${dataset.id}`}
+                      sx={{ 
+                        fontWeight: '500', 
+                        textDecoration: 'none',
+                        color: 'primary.main',
+                        '&:hover': {
+                          textDecoration: 'underline'
+                        }
+                      }}
+                    >
+                      {dataset.id}
+                    </Link>
+                  </TableCell>
                   <TableCell>
                     <Typography variant="body2" fontWeight="500">
                       {dataset.title}
@@ -371,17 +464,14 @@ const DatasetDashboard = () => {
                       variant={dataset.status === 'Active' ? 'filled' : 'outlined'}
                     />
                   </TableCell>
-                  {/* <TableCell align="right">
+                  <TableCell>
                     <IconButton size="small" color="primary">
                       <Visibility />
                     </IconButton>
                     <IconButton size="small" color="secondary">
                       <Edit />
                     </IconButton>
-                    <IconButton size="small">
-                      <FileDownload />
-                    </IconButton>
-                  </TableCell> */}
+                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>
@@ -416,9 +506,22 @@ const DatasetDashboard = () => {
                     </IconButton>
                   </Box>
                   
-                  <Typography variant="h6" fontWeight="600" gutterBottom>
-                    {dataset.title}
-                  </Typography>
+                  <Link 
+                    component={RouterLink} 
+                    to={`/datasets/${dataset.id}`}
+                    sx={{ 
+                      textDecoration: 'none',
+                      color: 'inherit',
+                      '&:hover': {
+                        textDecoration: 'underline',
+                        color: 'primary.main'
+                      }
+                    }}
+                  >
+                    <Typography variant="h6" fontWeight="600" gutterBottom>
+                      {dataset.title}
+                    </Typography>
+                  </Link>
                   
                   <Typography variant="body2" color="text.secondary" gutterBottom>
                     {dataset.id}
