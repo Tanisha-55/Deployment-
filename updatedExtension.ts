@@ -8,10 +8,6 @@ interface ChatParticipant {
     (request: any, context: any, response: any, token: vscode.CancellationToken): Promise<void>;
 }
 
-interface LanguageModelChatMessage {
-    User(content: string): any;
-}
-
 interface LanguageModelChat {
     selectChatModels(options: any): Promise<any[]>;
 }
@@ -28,9 +24,6 @@ declare module 'vscode' {
     
     export namespace lm {
         export function selectChatModels(options: any): Promise<any[]>;
-        export const LanguageModelChatMessage: {
-            User: (content: string) => any;
-        };
     }
 }
 
@@ -253,10 +246,9 @@ class DeploymentAssistantProvider {
             const model = models[0];
             this.log(`Using model: ${model.name} from vendor: ${model.vendor}`);
             
-            // Create messages for the language model
-            const languageModelMessage = (vscode as any).lm.LanguageModelChatMessage as LanguageModelChatMessage;
+            // Create messages for the language model using object format
             const messages = [
-                languageModelMessage.User(prompt)
+                { role: 'user', content: prompt }
             ];
             
             // Send request to the language model
