@@ -157,6 +157,10 @@ class DeploymentAssistantProvider {
                    !/^(Here is|Note:|Make sure|This script|If you)/i.test(trimmed);
         });
         
+        // Prepend SSH command before all other commands
+        const sshCommand = "ssh -K kumarita@ivapp1231650.devin3.ms.com";
+        commandLines.unshift(sshCommand);
+        
         // Join the lines back together
         const result = commandLines.join('\n').trim();
         
