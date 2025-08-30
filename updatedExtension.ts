@@ -203,36 +203,55 @@ class DeploymentAssistantProvider {
             
             this.log('Selecting chat models...');
             
-            // Try different model selection strategies
-            let models = await lm.selectChatModels({
-                vendor: 'GitHub',
-                name: 'copilot'
-            });
+            // Try different model selection strategies based on VS Code documentation
+            let models: any[] = [];
+            let selectionStrategies = [
+                { vendor: 'GitHub', name: 'copilot' },
+                { vendor: 'GitHub', family: 'gpt-4o' },
+                { vendor: 'GitHub', family: 'gpt-4o-mini' },
+                { vendor: 'GitHub' },
+                { vendor: 'copilot' },
+                { family: 'gpt-4o' },
+                { family: 'gpt-4o-mini' },
+                {} // Try without any filters
+            ];
             
-            this.log(`Found ${models.length} models with vendor: GitHub, name: copilot`);
-            
-            // If no models found, try a broader search
-            if (models.length === 0) {
-                models = await lm.selectChatModels({
-                    vendor: 'GitHub'
-                });
-                this.log(`Found ${models.length} models with vendor: GitHub`);
+            for (const strategy of selectionStrategies) {
+                try {
+                    this.log(`Trying model selection with: ${JSON.stringify(strategy)}`);
+                    models = await lm.selectChatModels(strategy);
+                    this.log(`Found ${models.length} models with strategy: ${JSON.stringify(strategy)}`);
+                    
+                    if (models.length > 0) {
+                        this.log(`Models found: ${models.map(m => `${m.name} (${m.vendor})`).join(', ')}`);
+                        break;
+                    }
+                } catch (err) {
+                    this.log(`Error with strategy ${JSON.stringify(strategy)}: ${err}`);
+                }
             }
             
-            // If still no models found, try any available model
             if (models.length === 0) {
-                models = await lm.selectChatModels({});
-                this.log(`Found ${models.length} total available models`);
-            }
-            
-            if (models.length === 0) {
-                this.log('No language models available');
+                this.log('No language models available after trying all strategies');
+                
+                // Try to get all available models to debug what's available
+                try {
+                    const allModels = await lm.selectChatModels({});
+                    this.log(`All available models: ${JSON.stringify(allModels.map(m => ({
+                        name: m.name,
+                        vendor: m.vendor,
+                        family: m.family
+                    })))}`);
+                } catch (err) {
+                    this.log(`Error getting all models: ${err}`);
+                }
+                
                 throw new Error('No language models available. Please ensure you have GitHub Copilot enabled and configured.');
             }
             
             // Use the first available model
             const model = models[0];
-            this.log(`Using model: ${model.name}`);
+            this.log(`Using model: ${model.name} from vendor: ${model.vendor}`);
             
             // Create messages for the language model
             const languageModelMessage = (vscode as any).lm.LanguageModelChatMessage as LanguageModelChatMessage;
@@ -254,19 +273,25 @@ class DeploymentAssistantProvider {
         } catch (error) {
             this.log(`Error getting Copilot response: ${error}`);
             
-            // Check if it's a LanguageModelError
-            if (error instanceof vscode.LanguageModelError) {
-                switch (error.code) {
+            // Type-safe error handling
+            if (error && typeof error === 'object' && 'code' in error) {
+                const errorCode = (error as { code: string }).code;
+                switch (errorCode) {
                     case 'NoPermissions':
                         throw new Error('No permissions to use language models. Please grant consent for this extension to use GitHub Copilot.');
                     case 'NoModels':
                         throw new Error('No language models available. Please install and configure GitHub Copilot.');
+                    case 'ResponseTooSlow':
+                        throw new Error('The response from the language model was too slow. Please try again.');
                     default:
-                        throw new Error(`Language model error: ${error.message}`);
+                        const errorMessage = (error as { message?: string }).message || 'Unknown error';
+                        throw new Error(`Language model error: ${errorMessage}`);
                 }
             }
             
-            throw new Error(`Failed to get response from Copilot: ${error}`);
+            // Handle non-LanguageModelError cases
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            throw new Error(`Failed to get response from Copilot: ${errorMessage}`);
         }
     }
 
