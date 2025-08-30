@@ -53,6 +53,7 @@ You can customize the extension behavior through VS Code settings:
 2. Search for "Deployment Assistant"
 3. Modify any of the available settings:
 
+``` json
 - `deploymentAssistant.sshCommand`: SSH command to connect to remote server
 - `deploymentAssistant.scriptMetadataFileName`: CSV metadata filename
 - `deploymentAssistant.readCsvInstructionsFileName`: CSV instructions filename
@@ -61,11 +62,13 @@ You can customize the extension behavior through VS Code settings:
 - `deploymentAssistant.scriptedFilesDirectory`: Processed scripts directory
 - `deploymentAssistant.generatedScriptFileName`: Generated shell script filename
 - `deploymentAssistant.batchSize`: Number of files to process simultaneously
+```
 
 ### Workspace-Specific Configuration
 
 For project-specific settings, create a `.vscode/settings.json` file in your workspace:
 
+``` json
 {
 "deploymentAssistant.sshCommand": "ssh -K myuser@myserver.com",
 "deploymentAssistant.scriptMetadataFileName": "My_Metadata.csv",
@@ -76,7 +79,7 @@ For project-specific settings, create a `.vscode/settings.json` file in your wor
 "deploymentAssistant.generatedScriptFileName": "my_deployment_script.sh",
 "deploymentAssistant.batchSize": 10
 }
-
+```
 
 File Format Examples:
 
