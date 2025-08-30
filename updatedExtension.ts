@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as child_process from 'child_process';
+import * as ssh2 from 'ssh2';
 
 // Define interfaces for the proposed API
 interface ChatParticipant {
@@ -320,7 +321,7 @@ class DeploymentAssistantProvider {
             throw new Error(`Failed to get response from Copilot: ${errorMessage}`);
         }
     }
-
+    
     private async executeShellScript(workspacePath: string) {
         this.log('Executing shell script...');
         
@@ -336,64 +337,76 @@ class DeploymentAssistantProvider {
         if (isSSHFirstCommand) {
             this.log('SSH command detected as first command. Establishing SSH connection...');
             
-            // Extract SSH command and the rest of the commands
+            // Parse SSH command
             const sshCommand = commands[0].trim();
+            const sshArgs = sshCommand.split(' ').slice(1); // Remove 'ssh' from the beginning
             const remoteCommands = commands.slice(1).filter(cmd => {
                 const trimmed = cmd.trim();
                 return trimmed && !trimmed.startsWith('#');
             });
             
-            this.log(`SSH command: ${sshCommand}`);
+            // Extract connection details from SSH command
+            const usernameHost = sshArgs.find(arg => arg.includes('@'));
+            if (!usernameHost) {
+                throw new Error('Invalid SSH command format. Expected format: ssh user@host');
+            }
+            
+            const [username, host] = usernameHost.split('@');
+            const otherArgs = sshArgs.filter(arg => arg !== usernameHost);
+            
+            this.log(`Connecting to ${host} as ${username}`);
             this.log(`Found ${remoteCommands.length} remote commands to execute`);
             
-            // Execute SSH command with all remote commands
+            // Execute commands via SSH2 client
             try {
-                const fullCommand = `${sshCommand} "${remoteCommands.join(' && ')}"`;
-                this.log(`Executing full command: ${fullCommand}`);
+                const conn = new ssh2.Client();
                 
                 await new Promise((resolve, reject) => {
-                    const startTime = new Date();
-                    this.log(`Command started at: ${startTime.toISOString()}`);
+                    conn.on('ready', () => {
+                        this.log('SSH Connection ready');
+                        
+                        // Execute commands sequentially
+                        this.executeRemoteCommands(conn, remoteCommands, 0)
+                            .then(() => {
+                                this.log('All remote commands executed successfully');
+                                conn.end();
+                                resolve(null);
+                            })
+                            .catch(error => {
+                                this.log(`Error executing remote commands: ${error}`);
+                                conn.end();
+                                reject(error);
+                            });
+                    });
                     
-                    const process = child_process.exec(fullCommand, { cwd: workspacePath }, (error, stdout, stderr) => {
-                        const endTime = new Date();
-                        const duration = endTime.getTime() - startTime.getTime();
-                        
-                        this.log(`Command completed in ${duration}ms`);
-                        
-                        if (error) {
-                            this.log(`Error executing SSH command: ${error}`);
-                            this.log(`Error code: ${error.code}`);
-                            this.log(`Error signal: ${error.signal}`);
-                            reject(error);
-                        } else {
-                            if (stdout) {
-                                this.log(`SSH command output: ${stdout}`);
-                            } else {
-                                this.log('SSH command produced no output');
-                            }
-                            if (stderr) {
-                                this.log(`SSH command error output: ${stderr}`);
-                            }
-                            resolve(stdout);
+                    conn.on('error', (err) => {
+                        this.log(`SSH Connection error: ${err}`);
+                        reject(err);
+                    });
+                    
+                    // Connect to SSH server
+                    const config: ssh2.ConnectConfig = {
+                        host,
+                        username,
+                        // You might need to add other connection options here
+                        // like privateKey, password, etc.
+                    };
+                    
+                    // Handle other SSH arguments
+                    otherArgs.forEach(arg => {
+                        if (arg === '-K') {
+                            // Handle GSSAPI authentication
+                            config.tryKeyboard = true;
                         }
+                        // Add handling for other SSH options as needed
                     });
                     
-                    // Add a timeout to prevent hanging indefinitely
-                    const timeout = setTimeout(() => {
-                        this.log(`SSH command timeout after 10 minutes`);
-                        process.kill();
-                        reject(new Error(`SSH command timed out after 10 minutes`));
-                    }, 10 * 60 * 1000); // 10 minutes timeout
-                    
-                    process.on('close', () => {
-                        clearTimeout(timeout);
-                    });
+                    conn.connect(config);
                 });
                 
-                this.log('SSH command execution completed successfully');
+                this.log('SSH session completed successfully');
             } catch (error) {
-                this.log(`Failed to execute SSH command: ${error}`);
+                this.log(`Failed to execute SSH commands: ${error}`);
                 throw error;
             }
         } else {
@@ -464,6 +477,61 @@ class DeploymentAssistantProvider {
         }
         
         this.log('All commands completed successfully');
+    }
+    
+    private async executeRemoteCommands(conn: ssh2.Client, commands: string[], index: number): Promise<void> {
+        if (index >= commands.length) {
+            return Promise.resolve();
+        }
+        
+        const cmd = commands[index];
+        this.log(`Executing remote command ${index + 1}/${commands.length}: ${cmd}`);
+        
+        return new Promise((resolve, reject) => {
+            const startTime = new Date();
+            this.log(`Remote command started at: ${startTime.toISOString()}`);
+            
+            conn.exec(cmd, (err, stream) => {
+                if (err) {
+                    this.log(`Error executing remote command: ${err}`);
+                    reject(err);
+                    return;
+                }
+                
+                let stdout = '';
+                let stderr = '';
+                
+                stream.on('close', (code: number, signal: string) => {
+                    const endTime = new Date();
+                    const duration = endTime.getTime() - startTime.getTime();
+                    
+                    this.log(`Remote command completed in ${duration}ms with code: ${code}`);
+                    
+                    if (stdout) {
+                        this.log(`Remote command output: ${stdout}`);
+                    }
+                    
+                    if (stderr) {
+                        this.log(`Remote command error output: ${stderr}`);
+                    }
+                    
+                    if (code !== 0) {
+                        this.log(`Remote command failed with exit code: ${code}`);
+                        reject(new Error(`Remote command failed with exit code: ${code}`));
+                    } else {
+                        this.log(`Successfully executed remote command ${index + 1}/${commands.length}`);
+                        // Execute next command
+                        this.executeRemoteCommands(conn, commands, index + 1)
+                            .then(resolve)
+                            .catch(reject);
+                    }
+                }).on('data', (data: Buffer) => {
+                    stdout += data.toString();
+                }).stderr.on('data', (data: Buffer) => {
+                    stderr += data.toString();
+                });
+            });
+        });
     }
 
     private log(message: string) {
