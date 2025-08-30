@@ -330,27 +330,140 @@ class DeploymentAssistantProvider {
         
         this.log(`Found ${commands.length} commands in shell script`);
         
-        for (const cmd of commands) {
-            const trimmedCmd = cmd.trim();
-            // Skip empty lines and comments
-            if (trimmedCmd && !trimmedCmd.startsWith('#')) {
-                this.log(`Executing: ${trimmedCmd}`);
+        // Check if the first command is an SSH command
+        const isSSHFirstCommand = commands[0] && commands[0].trim().startsWith('ssh ');
+        
+        if (isSSHFirstCommand) {
+            this.log('SSH command detected as first command. Establishing SSH connection...');
+            
+            // Extract SSH command and the rest of the commands
+            const sshCommand = commands[0].trim();
+            const remoteCommands = commands.slice(1).filter(cmd => {
+                const trimmed = cmd.trim();
+                return trimmed && !trimmed.startsWith('#');
+            });
+            
+            this.log(`SSH command: ${sshCommand}`);
+            this.log(`Found ${remoteCommands.length} remote commands to execute`);
+            
+            // Execute SSH command with all remote commands
+            try {
+                const fullCommand = `${sshCommand} "${remoteCommands.join(' && ')}"`;
+                this.log(`Executing full command: ${fullCommand}`);
                 
-                // Execute command in the workspace directory
                 await new Promise((resolve, reject) => {
-                    child_process.exec(trimmedCmd, { cwd: workspacePath }, (error, stdout, stderr) => {
+                    const startTime = new Date();
+                    this.log(`Command started at: ${startTime.toISOString()}`);
+                    
+                    const process = child_process.exec(fullCommand, { cwd: workspacePath }, (error, stdout, stderr) => {
+                        const endTime = new Date();
+                        const duration = endTime.getTime() - startTime.getTime();
+                        
+                        this.log(`Command completed in ${duration}ms`);
+                        
                         if (error) {
-                            this.log(`Error executing command: ${error}`);
+                            this.log(`Error executing SSH command: ${error}`);
+                            this.log(`Error code: ${error.code}`);
+                            this.log(`Error signal: ${error.signal}`);
                             reject(error);
                         } else {
-                            if (stdout) this.log(`Output: ${stdout}`);
-                            if (stderr) this.log(`Error output: ${stderr}`);
+                            if (stdout) {
+                                this.log(`SSH command output: ${stdout}`);
+                            } else {
+                                this.log('SSH command produced no output');
+                            }
+                            if (stderr) {
+                                this.log(`SSH command error output: ${stderr}`);
+                            }
                             resolve(stdout);
                         }
                     });
+                    
+                    // Add a timeout to prevent hanging indefinitely
+                    const timeout = setTimeout(() => {
+                        this.log(`SSH command timeout after 10 minutes`);
+                        process.kill();
+                        reject(new Error(`SSH command timed out after 10 minutes`));
+                    }, 10 * 60 * 1000); // 10 minutes timeout
+                    
+                    process.on('close', () => {
+                        clearTimeout(timeout);
+                    });
                 });
+                
+                this.log('SSH command execution completed successfully');
+            } catch (error) {
+                this.log(`Failed to execute SSH command: ${error}`);
+                throw error;
+            }
+        } else {
+            // Original logic for non-SSH commands
+            this.log('No SSH command found, executing commands locally');
+            
+            for (let i = 0; i < commands.length; i++) {
+                const cmd = commands[i];
+                const trimmedCmd = cmd.trim();
+                
+                // Skip empty lines and comments
+                if (trimmedCmd && !trimmedCmd.startsWith('#')) {
+                    this.log(`Executing command ${i + 1}/${commands.length}: ${trimmedCmd}`);
+                    
+                    // Add a timestamp to track when the command started
+                    const startTime = new Date();
+                    this.log(`Command started at: ${startTime.toISOString()}`);
+                    
+                    // Execute command in the workspace directory
+                    try {
+                        await new Promise((resolve, reject) => {
+                            const process = child_process.exec(trimmedCmd, { cwd: workspacePath }, (error, stdout, stderr) => {
+                                const endTime = new Date();
+                                const duration = endTime.getTime() - startTime.getTime();
+                                
+                                this.log(`Command completed in ${duration}ms`);
+                                
+                                if (error) {
+                                    this.log(`Error executing command: ${error}`);
+                                    this.log(`Error code: ${error.code}`);
+                                    this.log(`Error signal: ${error.signal}`);
+                                    reject(error);
+                                } else {
+                                    if (stdout) {
+                                        this.log(`Command output: ${stdout}`);
+                                    } else {
+                                        this.log('Command produced no output');
+                                    }
+                                    if (stderr) {
+                                        this.log(`Command error output: ${stderr}`);
+                                    }
+                                    resolve(stdout);
+                                }
+                            });
+                            
+                            // Add a timeout to prevent hanging indefinitely
+                            const timeout = setTimeout(() => {
+                                this.log(`Command timeout after 5 minutes: ${trimmedCmd}`);
+                                process.kill();
+                                reject(new Error(`Command timed out after 5 minutes: ${trimmedCmd}`));
+                            }, 5 * 60 * 1000); // 5 minutes timeout
+                            
+                            process.on('close', () => {
+                                clearTimeout(timeout);
+                            });
+                        });
+                    } catch (error) {
+                        this.log(`Failed to execute command: ${trimmedCmd}`);
+                        this.log(`Error details: ${error}`);
+                        throw error;
+                    }
+                    
+                    this.log(`Successfully executed command ${i + 1}/${commands.length}`);
+                } else {
+                    this.log(`Skipping line ${i + 1}: ${trimmedCmd || 'empty line'}`);
+                }
             }
         }
+        
+        this.log('All commands completed successfully');
     }
 
     private log(message: string) {
