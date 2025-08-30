@@ -96,7 +96,9 @@ Instructions for cleansing SQL files:
 
 
 Extension Settings:
+
 This extension contributes the following settings:
+```
 deploymentAssistant.sshCommand: SSH command for remote execution
 deploymentAssistant.scriptMetadataFileName: Script metadata CSV filename
 deploymentAssistant.readCsvInstructionsFileName: CSV instructions filename
@@ -105,7 +107,7 @@ deploymentAssistant.rawDdlScriptsDirectory: Raw DDL scripts directory name
 deploymentAssistant.scriptedFilesDirectory: Processed scripts directory name
 deploymentAssistant.generatedScriptFileName: Generated shell script filename
 deploymentAssistant.batchSize: Batch size for file processing
-
+```
 
 Known Issues
 Requires GitHub Copilot and Language Model API access
