@@ -112,12 +112,16 @@ class DeploymentAssistantProvider {
         const instructionsPath = path.join(workspacePath, 'readcsvscript.md');
         this.log(`Reading instructions from: ${instructionsPath}`);
         const instructions = fs.readFileSync(instructionsPath, 'utf-8');
-        
+
         // Get the shell script from Copilot
         this.log('Requesting shell script from Copilot...');
-        const shellScript = await this.getCopilotResponse(
-            `${instructions}\n\nCSV Content:\n${csvContent}`
+        const shellScriptResponse = await this.getCopilotResponse(
+            `${instructions}\n\nCSV Content:\n${csvContent}\n\nIMPORTANT: Only output the shell script commands, no explanatory text.`
         );
+        
+        // Extract only the shell commands from the response
+        this.log('Requesting shell script from Copilot...');
+        const shellScript = this.extractShellCommands(shellScriptResponse);
         
         // Save the generated shell script to workspace
         const scriptPath = path.join(workspacePath, 'gendb2ddl.sh');
@@ -132,6 +136,32 @@ class DeploymentAssistantProvider {
         // Execute the shell script
         this.log('Executing shell script...');
         await this.executeShellScript(workspacePath);
+    }
+
+    private extractShellCommands(response: string): string {
+        this.log('Extracting shell commands from response...');
+        
+        // Remove any markdown code block markers
+        let cleanedResponse = response.replace(/```(?:shell|bash)?/g, '');
+        
+        // Remove any explanatory text before or after the commands
+        const lines = cleanedResponse.split('\n');
+        const commandLines = lines.filter(line => {
+            const trimmed = line.trim();
+            // Keep lines that are either:
+            // 1. Empty lines
+            // 2. Comment lines (starting with #)
+            // 3. Shell commands (not starting with words like "Here", "Note", etc.)
+            return trimmed === '' || 
+                   trimmed.startsWith('#') || 
+                   !/^(Here is|Note:|Make sure|This script|If you)/i.test(trimmed);
+        });
+        
+        // Join the lines back together
+        const result = commandLines.join('\n').trim();
+        
+        this.log(`Extracted commands: \n${result}`);
+        return result;
     }
 
     private async processSQLCleansing() {
@@ -291,12 +321,14 @@ class DeploymentAssistantProvider {
         this.log('Executing shell script...');
         
         const scriptPath = path.join(workspacePath, 'gendb2ddl.sh');
-        const commands = fs.readFileSync(scriptPath, 'utf-8').split('\n');
+        const scriptContent = fs.readFileSync(scriptPath, 'utf-8');
+        const commands = scriptContent.split('\n');
         
         this.log(`Found ${commands.length} commands in shell script`);
         
         for (const cmd of commands) {
             const trimmedCmd = cmd.trim();
+            // Skip empty lines and comments
             if (trimmedCmd && !trimmedCmd.startsWith('#')) {
                 this.log(`Executing: ${trimmedCmd}`);
                 
