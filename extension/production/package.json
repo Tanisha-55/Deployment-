@@ -1,0 +1,51 @@
+{
+  // Same as testing version but remove the testMode configuration property
+  "contributes": {
+    "configuration": {
+      "title": "Deployment Assistant",
+      "properties": {
+        "deploymentAssistant.sshCommand": {
+          "type": "string",
+          "default": "ssh -K kumarita@ivapp1231650.devin3.ms.com",
+          "description": "SSH command to connect to the remote server"
+        },
+        "deploymentAssistant.scriptMetadataFileName": {
+          "type": "string",
+          "default": "Script_Metadata.csv",
+          "description": "Filename for the script metadata CSV file"
+        },
+        "deploymentAssistant.readCsvInstructionsFileName": {
+          "type": "string",
+          "default": "readcsvscript.md",
+          "description": "Filename for the CSV reading instructions"
+        },
+        "deploymentAssistant.cleansingInstructionsFileName": {
+          "type": "string",
+          "default": "cleansingscripts.md",
+          "description": "Filename for the SQL cleansing instructions"
+        },
+        "deploymentAssistant.rawDdlScriptsDirectory": {
+          "type": "string",
+          "default": "rawddlscripts",
+          "description": "Directory name for raw DDL scripts"
+        },
+        "deploymentAssistant.scriptedFilesDirectory": {
+          "type": "string",
+          "default": "scriptedfiles",
+          "description": "Directory name for processed script files"
+        },
+        "deploymentAssistant.generatedScriptFileName": {
+          "type": "string",
+          "default": "gendb2ddl.sh",
+          "description": "Filename for the generated shell script"
+        },
+        "deploymentAssistant.batchSize": {
+          "type": "number",
+          "default": 5,
+          "description": "Number of files to process simultaneously during SQL cleansing"
+        }
+        // testMode property removed
+      }
+    }
+  }
+}
