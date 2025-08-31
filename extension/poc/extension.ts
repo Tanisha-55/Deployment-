@@ -223,15 +223,42 @@ class DeploymentAssistantProvider {
         response.markdown('🚀 Starting deployment automation...\n\nI\'ll process your CSV metadata and cleanse SQL files.\n\n');
         
         try {
-            // Show progress updates
-            response.markdown('📊 Analyzing CSV metadata...');
-            
             // Execute the deployment
-            await this.startDeployment();
+            await this.executeDeploymentWithChatUpdates(response);
             
             response.markdown('✅ Deployment automation completed successfully!\n\nAll tasks have been processed. Check the Output panel for detailed logs.');
         } catch (error) {
             response.markdown(`❌ Deployment automation failed: ${error}\n\nCheck the Output panel for detailed error information.`);
+        }
+    }
+
+    private async executeDeploymentWithChatUpdates(response: any) {
+        this.log('Starting deployment automation from chat command...');
+        this.reloadConfiguration(); // Ensure we have the latest config
+        
+        // Validate configuration
+        const warnings = this.validateConfiguration(this.config);
+        if (warnings.length > 0) {
+            response.markdown('⚠️ Configuration issues found. Continuing anyway...\n\n');
+        }
+        
+        try {
+            // Step 1: Process CSV Analysis
+            response.markdown('📊 Analyzing CSV metadata and generating shell script...');
+            await this.processCSVAnalysis();
+            response.markdown('✅ CSV analysis completed. Shell script generated.\n\n');
+            
+            // Step 2: Process SQL Cleansing
+            response.markdown('🧹 Cleansing SQL files...');
+            await this.processSQLCleansing();
+            response.markdown('✅ SQL cleansing completed.\n\n');
+            
+            response.markdown('🎉 All deployment tasks completed successfully!');
+            this.log('Deployment automation completed from chat command!');
+        } catch (error) {
+            response.markdown(`❌ Deployment task failed: ${error}`);
+            this.log(`Deployment automation failed from chat command: ${error}`);
+            throw error;
         }
     }
 
@@ -283,9 +310,9 @@ class DeploymentAssistantProvider {
             '- `@deploy status`: Check deployment status\n' +
             '- `@deploy help`: Show this help message\n\n' +
             '### What it does:\n' +
-            '1. Processes CSV metadata to generate deployment scripts\n' +
-            '2. Cleanses and augments SQL DDL files\n' +
-            '3. Executes deployment commands on remote server\n\n' +
+            '1. 📊 Processes CSV metadata to generate deployment scripts\n' +
+            '2. 🧹 Cleanses and augments SQL DDL files\n' +
+            '3. ⚡ Executes deployment commands on remote server\n\n' +
             '### Required Files:\n' +
             '- `Script_Metadata.csv`: CSV file with script metadata\n' +
             '- `readcsvscript.md`: Instructions for processing CSV\n' +
