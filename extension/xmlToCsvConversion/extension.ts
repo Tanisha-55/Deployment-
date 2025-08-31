@@ -1,7 +1,6 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
-import { XMLParser } from 'fast-xml-parser';
 import { setTimeout } from 'timers/promises';
 
 interface ExtensionConfig {
@@ -9,17 +8,19 @@ interface ExtensionConfig {
     instructionsPath: string;
     outputFolder: string;
     maxConcurrent: number;
+    delayBetweenRequests: number;
 }
 
 export function activate(context: vscode.ExtensionContext) {
-    let disposable = vscode.commands.registerCommand('xml-to-csv-lineage.generateLineage', async () => {
+    let disposable = vscode.commands.registerCommand('copilot-lineage-deriver.generateLineage', async () => {
         // Get configuration
-        const config = vscode.workspace.getConfiguration('xmlToCsvLineage');
+        const config = vscode.workspace.getConfiguration('copilotLineageDeriver');
         const extensionConfig: ExtensionConfig = {
             xmlFolderPath: config.get('xmlFolderPath', 'informatica'),
             instructionsPath: config.get('instructionsPath', 'instructions.md'),
             outputFolder: config.get('outputFolder', 'output'),
-            maxConcurrent: config.get('maxConcurrent', 5)
+            maxConcurrent: config.get('maxConcurrent', 5),
+            delayBetweenRequests: config.get('delayBetweenRequests', 1000)
         };
 
         // Check if workspace is open
@@ -59,7 +60,7 @@ export function activate(context: vscode.ExtensionContext) {
             // Process files with progress indicator
             await vscode.window.withProgress({
                 location: vscode.ProgressLocation.Notification,
-                title: "Generating Lineage CSV Files",
+                title: "Generating Lineage CSV Files with Copilot",
                 cancellable: true
             }, async (progress, token) => {
                 let processed = 0;
@@ -82,19 +83,22 @@ export function activate(context: vscode.ExtensionContext) {
                         try {
                             await processXmlFile(xmlUri, outputFolderUri, instructionsText);
                             processed++;
-                            progress.report({ increment: (100 / total), message: `Processed ${processed}/${total} files` });
+                            progress.report({ 
+                                increment: (100 / total), 
+                                message: `Processed ${processed}/${total} files (${path.basename(xmlUri.fsPath)})` 
+                            });
                         } catch (error) {
                             vscode.window.showErrorMessage(`Error processing ${path.basename(xmlUri.fsPath)}: ${error}`);
                         }
                     }));
 
-                    // Add a small delay between batches to avoid rate limiting
+                    // Add a delay between batches to avoid rate limiting
                     if (i + batchSize < xmlFileUris.length) {
-                        await setTimeout(1000);
+                        await setTimeout(extensionConfig.delayBetweenRequests);
                     }
                 }
 
-                vscode.window.showInformationMessage(`Successfully processed ${processed} XML files.`);
+                vscode.window.showInformationMessage(`Successfully processed ${processed} XML files. CSV files saved to ${extensionConfig.outputFolder}`);
             });
 
         } catch (error) {
@@ -110,19 +114,9 @@ async function processXmlFile(xmlUri: vscode.Uri, outputFolderUri: vscode.Uri, i
     const xmlContent = await vscode.workspace.fs.readFile(xmlUri);
     const xmlText = Buffer.from(xmlContent).toString('utf8');
 
-    // Extract basic info from XML for better prompting
-    const parser = new XMLParser();
-    let xmlObj;
-    try {
-        xmlObj = parser.parse(xmlText);
-    } catch (error) {
-        // If XML parsing fails, we'll still proceed with the raw text
-        console.warn(`Could not parse XML file ${xmlUri.fsPath}: ${error}`);
-    }
-
     // Create a prompt for Copilot
     const fileName = path.basename(xmlUri.fsPath, '.xml');
-    const prompt = createPrompt(instructionsText, xmlText, xmlObj, fileName);
+    const prompt = createPrompt(instructionsText, xmlText, fileName);
 
     // Get response from Copilot using agent mode
     const csvContent = await getCopilotResponse(prompt);
@@ -133,7 +127,7 @@ async function processXmlFile(xmlUri: vscode.Uri, outputFolderUri: vscode.Uri, i
     await vscode.workspace.fs.writeFile(csvUri, Buffer.from(csvContent, 'utf8'));
 }
 
-function createPrompt(instructions: string, xmlText: string, xmlObj: any, fileName: string): string {
+function createPrompt(instructions: string, xmlText: string, fileName: string): string {
     return `
 @workspace /generateLineage
 I need to convert an XML file to a CSV lineage format.
@@ -145,9 +139,6 @@ ${instructions}
 
 ## XML Content:
 ${xmlText}
-
-## XML Structure (parsed):
-${JSON.stringify(xmlObj, null, 2)}
 
 Please generate the CSV lineage content based on the instructions and XML provided.
 The CSV should have the appropriate headers and data extracted from the XML.
@@ -172,7 +163,7 @@ async function getCopilotResponse(prompt: string): Promise<string> {
     
     // Simulated response for demonstration
     return `source,target,transformation,type
-${prompt.split('\n')[0]},${prompt.split('\n')[1]},XML to CSV,automatic`;
+example_source,example_target,example_transformation,automatic`;
 }
 
 export function deactivate() {}
