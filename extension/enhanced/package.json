@@ -1,0 +1,123 @@
+{
+  "name": "deployment-assistant",
+  "displayName": "Deployment Assistant",
+  "description": "Automates deployment processes using GitHub Copilot",
+  "version": "1.0.0",
+  "engines": {
+    "vscode": "^1.102.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onCommand:deployment-assistant.start",
+    "onChatParticipant:deployment-assistant.chat"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "deployment-assistant.start",
+        "title": "Start Deployment Automation",
+        "category": "Deployment Assistant"
+      }
+    ],
+    "chatParticipants": [
+      {
+        "id": "deployment-assistant.chat",
+        "name": "Deployment Assistant",
+        "description": "Automates deployment processes using GitHub Copilot",
+        "commands": [
+          {
+            "name": "deploy",
+            "description": "Start deployment automation"
+          },
+          {
+            "name": "deploy status",
+            "description": "Check deployment status"
+          },
+          {
+            "name": "deploy help",
+            "description": "Show deployment help"
+          }
+        ]
+      }
+    ],
+    "configuration": {
+      "title": "Deployment Assistant",
+      "properties": {
+        "deploymentAssistant.sshCommand": {
+          "type": "string",
+          "default": "ssh -K kumarita@ivapp1231650.devin3.ms.com",
+          "description": "SSH command to connect to the remote server"
+        },
+        "deploymentAssistant.scriptMetadataFileName": {
+          "type": "string",
+          "default": "Script_Metadata.csv",
+          "description": "Filename for the script metadata CSV file"
+        },
+        "deploymentAssistant.readCsvInstructionsFileName": {
+          "type": "string",
+          "default": "readcsvscript.md",
+          "description": "Filename for the CSV reading instructions"
+        },
+        "deploymentAssistant.cleansingInstructionsFileName": {
+          "type": "string",
+          "default": "cleansingscripts.md",
+          "description": "Filename for the SQL cleansing instructions"
+        },
+        "deploymentAssistant.rawDdlScriptsDirectory": {
+          "type": "string",
+          "default": "rawddlscripts",
+          "description": "Directory name for raw DDL scripts"
+        },
+        "deploymentAssistant.scriptedFilesDirectory": {
+          "type": "string",
+          "default": "scriptedfiles",
+          "description": "Directory name for processed script files"
+        },
+        "deploymentAssistant.generatedScriptFileName": {
+          "type": "string",
+          "default": "gendb2ddl.sh",
+          "description": "Filename for the generated shell script"
+        },
+        "deploymentAssistant.batchSize": {
+          "type": "number",
+          "default": 5,
+          "description": "Number of files to process simultaneously during SQL cleansing"
+        },
+        "deploymentAssistant.taskExecutionOrder": {
+          "type": "array",
+          "default": ["csv-analysis", "sql-cleansing"],
+          "description": "Order in which to execute deployment tasks"
+        },
+        "deploymentAssistant.customTasks": {
+          "type": "array",
+          "default": [],
+          "description": "Custom tasks to add to the deployment workflow"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile && npm run lint",
+    "lint": "eslint src --ext ts",
+    "test": "node ./out/test/runTest.js"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.102.0",
+    "@types/glob": "^8.1.0",
+    "@types/mocha": "^10.0.1",
+    "@types/node": "22.x",
+    "@typescript-eslint/eslint-plugin": "^6.7.0",
+    "@typescript-eslint/parser": "^6.7.0",
+    "eslint": "^8.49.0",
+    "glob": "^8.1.0",
+    "mocha": "^10.2.0",
+    "typescript": "^5.2.2",
+    "@vscode/test-electron": "^2.3.4"
+  }
+}
