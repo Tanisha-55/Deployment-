@@ -20,6 +20,11 @@ interface ChatAPI {
 declare module 'vscode' {
     export namespace chat {
         export function createChatParticipant(id: string, handler: ChatParticipant): any;
+        export interface ChatRequest {
+            prompt: string;
+            command: string;
+            references: any[];
+        }
     }
     
     export namespace lm {
@@ -168,16 +173,15 @@ class DeploymentAssistantProvider {
     }
 
     async handleChatRequest(
-        request: any,
+        request: vscode.chat.ChatRequest,
         context: any,
         response: any,
         token: vscode.CancellationToken
     ): Promise<void> {
-        const prompt = request.prompt;
-        this.log(`Received chat request: "${prompt}"`);
+        this.log(`Received chat request: "${request.prompt}"`);
         
         // Parse the command from the prompt
-        const command = this.parseCommand(prompt);
+        const command = this.parseCommand(request.prompt);
         
         switch (command) {
             case 'deploy':
@@ -326,7 +330,7 @@ class DeploymentAssistantProvider {
             'Use the Command Palette ("Start Deployment Automation") for alternative access.');
     }
 
-        private async processCSVAnalysis() {
+    private async processCSVAnalysis() {
         this.log('Processing CSV Analysis with Copilot...');
         
         // Get the workspace folder
