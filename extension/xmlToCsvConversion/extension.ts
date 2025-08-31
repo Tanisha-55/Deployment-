@@ -19,6 +19,8 @@ interface ProcessingResult {
 }
 
 export function activate(context: vscode.ExtensionContext) {
+    console.log('Copilot Lineage Deriver extension is now active!');
+
     // Register the main command for generating lineage
     let generateLineageCommand = vscode.commands.registerCommand('copilot-lineage-deriver.generateLineage', async () => {
         const result = await processAllMappings();
@@ -50,73 +52,63 @@ export function activate(context: vscode.ExtensionContext) {
     });
 
     // Register the chat participant for @extract-lineage
-    const chatParticipant = vscode.chat.createChatParticipant(
-        'copilot-lineage-deriver.extract-lineage',
-        async (request: vscode.ChatRequest, context: vscode.ChatContext, stream: vscode.ChatResponseStream, token: vscode.CancellationToken) => {
-            // Check which command was used
-            const command = request.command;
-            
-            let result: ProcessingResult;
-            
-            if (command === 'extract-current') {
-                // Extract lineage from current file
-                const editor = vscode.window.activeTextEditor;
-                if (!editor || !editor.document.fileName.endsWith('.xml')) {
-                    stream.markdown('Please open an XML file first to use this command.');
-                    return;
+    try {
+        const chatParticipant = vscode.chat.createChatParticipant(
+            'extract-lineage',
+            async (request: vscode.ChatRequest, context: vscode.ChatContext, stream: vscode.ChatResponseStream, token: vscode.CancellationToken) => {
+                console.log('Chat participant invoked with prompt:', request.prompt);
+                
+                let result: ProcessingResult;
+                
+                if (request.command === 'extract-current') {
+                    // Extract lineage from current file
+                    const editor = vscode.window.activeTextEditor;
+                    if (!editor || !editor.document.fileName.endsWith('.xml')) {
+                        stream.markdown('Please open an XML file first to use this command.');
+                        return;
+                    }
+                    
+                    result = await processSingleFile(editor.document.uri);
+                } else {
+                    // Default: extract all
+                    result = await processAllMappings();
                 }
                 
-                result = await processSingleFile(editor.document.uri);
-            } else if (command === 'extract-folder') {
-                // Extract lineage from a specific folder
-                const folder = await vscode.window.showOpenDialog({
-                    canSelectFiles: false,
-                    canSelectFolders: true,
-                    canSelectMany: false,
-                    openLabel: 'Select folder with XML files'
-                });
-                
-                if (!folder || folder.length === 0) {
-                    stream.markdown('No folder selected.');
-                    return;
-                }
-                
-                result = await processFolder(folder[0]);
-            } else {
-                // Default: extract all
-                result = await processAllMappings();
-            }
-            
-            // Return a response for the chat interface
-            if (result.success) {
-                stream.markdown(`Lineage extraction completed. Processed ${result.fileCount} XML files with ${result.errorCount} errors. Output saved to ${result.outputPath}`);
-                
-                // Add follow-up options
-                if (vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0) {
+                // Return a response for the chat interface
+                if (result.success) {
+                    stream.markdown(`Lineage extraction completed. Processed ${result.fileCount} XML files with ${result.errorCount} errors. Output saved to ${result.outputPath}`);
+                    
+                    // Add follow-up options
+                    if (vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0) {
+                        stream.button({
+                            command: 'revealFileInOS',
+                            arguments: [vscode.Uri.joinPath(vscode.workspace.workspaceFolders[0].uri, result.outputPath)],
+                            title: 'Show Output Folder'
+                        });
+                    }
+                    
                     stream.button({
-                        command: 'revealFileInOS',
-                        arguments: [vscode.Uri.joinPath(vscode.workspace.workspaceFolders[0].uri, result.outputPath)],
-                        title: 'Show Output Folder'
+                        command: 'copilot-lineage-deriver.generateLineage',
+                        title: 'Run Again'
                     });
+                } else {
+                    stream.markdown(`Lineage extraction failed. ${result.errorCount} errors occurred.`);
                 }
-                
-                stream.button({
-                    command: 'copilot-lineage-deriver.generateLineage',
-                    title: 'Run Again'
-                });
-            } else {
-                stream.markdown(`Lineage extraction failed. ${result.errorCount} errors occurred.`);
             }
-        }
-    );
+        );
 
-    // Configure the chat participant
-    chatParticipant.iconPath = vscode.Uri.joinPath(context.extensionUri, 'icon.png');
+        // Configure the chat participant
+        chatParticipant.iconPath = vscode.Uri.joinPath(context.extensionUri, 'icon.png');
+        context.subscriptions.push(chatParticipant);
+        console.log('Chat participant registered successfully');
+    } catch (error) {
+        console.error('Failed to register chat participant:', error);
+        vscode.window.showErrorMessage('Failed to register chat participant. Check the console for details.');
+    }
     
     context.subscriptions.push(
         generateLineageCommand, 
-        extractLineageSingleCommand, 
-        chatParticipant
+        extractLineageSingleCommand
     );
 }
 
@@ -291,13 +283,6 @@ async function processAllMappings(): Promise<ProcessingResult> {
     }
 }
 
-async function processFolder(folderUri: vscode.Uri): Promise<ProcessingResult> {
-    // Similar to processAllMappings but for a specific folder
-    // Implementation would be similar but focused on a single folder
-    // For brevity, I'm returning a placeholder result
-    return { success: true, fileCount: 0, errorCount: 0, outputPath: 'lineage_csv' };
-}
-
 async function processSingleFile(xmlUri: vscode.Uri): Promise<ProcessingResult> {
     // Get configuration
     const config = vscode.workspace.getConfiguration('copilotLineageDeriver');
@@ -461,4 +446,6 @@ async function getCopilotResponse(messages: vscode.LanguageModelChatMessage[]): 
     }
 }
 
-export function deactivate() {}
+export function deactivate() {
+    console.log('Copilot Lineage Deriver extension is now deactivated!');
+}
