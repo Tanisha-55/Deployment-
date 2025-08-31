@@ -11,7 +11,7 @@
   ],
   "activationEvents": [
     "onCommand:copilot-lineage-deriver.generateLineage",
-    "onLanguageModelRequest:copilot"
+    "onChatParticipant:copilot-lineage-deriver.extract-lineage"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -21,8 +21,8 @@
         "title": "Generate Lineage CSV from XML"
       },
       {
-        "command": "copilot-lineage-deriver.extractLineage",
-        "title": "Extract Lineage via Copilot Chat",
+        "command": "copilot-lineage-deriver.extractLineageSingle",
+        "title": "Extract Lineage for Current XML File",
         "category": "Copilot Lineage"
       }
     ],
@@ -63,10 +63,26 @@
     },
     "chatParticipants": [
       {
-        "id": "copilot-lineage-deriver",
-        "name": "Lineage Deriver",
+        "id": "extract-lineage",
+        "name": "Extract Lineage",
         "description": "Extract lineage from XML files using Copilot",
-        "command": "copilot-lineage-deriver.extractLineage"
+        "fullName": "Lineage Extractor",
+        "icon": "$(file-code)",
+        "when": "resourceExtname == .xml",
+        "commands": [
+          {
+            "name": "extract-all",
+            "description": "Extract lineage from all XML files in the workspace"
+          },
+          {
+            "name": "extract-current",
+            "description": "Extract lineage from the currently active XML file"
+          },
+          {
+            "name": "extract-folder",
+            "description": "Extract lineage from XML files in a specific folder"
+          }
+        ]
       }
     ]
   },
