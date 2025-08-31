@@ -173,50 +173,55 @@ class DeploymentAssistantProvider {
         response: any,
         token: vscode.CancellationToken
     ): Promise<void> {
-        const prompt = request.prompt.toLowerCase();
-        this.log(`Received chat request: "${request.prompt}"`);
+        const prompt = request.prompt;
+        this.log(`Received chat request: "${prompt}"`);
         
-        // Check for @deploy command and its variants
-        if (prompt.includes('@deploy') || prompt.includes('@deployment')) {
-            // Extract the command part (remove any additional text)
-            const commandMatch = prompt.match(/(@deploy(?:\w*))(?:\s+|$)/i);
-            if (commandMatch) {
-                const command = commandMatch[1].toLowerCase();
-                this.log(`Processing command: ${command}`);
-                
-                switch (command) {
-                    case '@deploy':
-                    case '@deployment':
-                        await this.handleDeployCommand(request, response, token);
-                        return;
-                    case '@deploystatus':
-                    case '@deploymentstatus':
-                        await this.handleStatusCommand(response);
-                        return;
-                    case '@deployhelp':
-                    case '@deploymenthelp':
-                        await this.handleHelpCommand(response);
-                        return;
-                    default:
-                        response.markdown(`Unknown command: ${command}. Use @deploy, @deploy status, or @deploy help.`);
-                        return;
-                }
-            } else {
-                // Handle case where @deploy is part of a longer message
+        // Parse the command from the prompt
+        const command = this.parseCommand(prompt);
+        
+        switch (command) {
+            case 'deploy':
                 await this.handleDeployCommand(request, response, token);
-                return;
-            }
+                break;
+            case 'deploy status':
+                await this.handleStatusCommand(response);
+                break;
+            case 'deploy help':
+                await this.handleHelpCommand(response);
+                break;
+            case '':
+                // No command specified, show help
+                response.markdown('Deployment Assistant is ready. Use `@deploy` to start automation, `@deploy status` for status, or `@deploy help` for assistance.');
+                break;
+            default:
+                response.markdown(`Unknown command: ${command}. Use @deploy, @deploy status, or @deploy help.`);
+                break;
+        }
+    }
+
+    // Parse the command from the prompt
+    private parseCommand(prompt: string): string {
+        // Remove the @DeploymentAssistant mention and any leading/trailing slashes
+        const cleanPrompt = prompt
+            .replace(/@DeploymentAssistant/gi, '')
+            .replace(/^\//, '')
+            .trim();
+        
+        // Handle empty prompt
+        if (!cleanPrompt) return '';
+        
+        // Handle help command variations
+        if (cleanPrompt.toLowerCase().includes('help')) {
+            return 'deploy help';
         }
         
-        // Handle the old "start deployment" command for backward compatibility
-        if (prompt.includes('start deployment')) {
-            response.markdown('Starting deployment automation...');
-            this.startDeployment();
-            return;
+        // Handle status command variations
+        if (cleanPrompt.toLowerCase().includes('status')) {
+            return 'deploy status';
         }
         
-        // Default response for other messages
-        response.markdown('Deployment Assistant is ready. Use @deploy to start automation, @deploy status for status, or @deploy help for assistance.');
+        // Default to deploy command
+        return 'deploy';
     }
 
     private async handleDeployCommand(request: any, response: any, token: vscode.CancellationToken) {
@@ -321,7 +326,7 @@ class DeploymentAssistantProvider {
             'Use the Command Palette ("Start Deployment Automation") for alternative access.');
     }
 
-    private async processCSVAnalysis() {
+        private async processCSVAnalysis() {
         this.log('Processing CSV Analysis with Copilot...');
         
         // Get the workspace folder
