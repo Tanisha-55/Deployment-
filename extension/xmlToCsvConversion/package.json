@@ -1,7 +1,7 @@
 {
   "name": "copilot-lineage-deriver",
   "displayName": "Copilot Lineage Deriver",
-  "description": "Generate lineage CSV files from XML using Copilot agent mode",
+  "description": "Generate lineage CSV files from XML using Copilot agent mode with @extract-lineage command",
   "version": "1.0.0",
   "engines": {
     "vscode": "^1.85.0"
@@ -10,7 +10,8 @@
     "Other"
   ],
   "activationEvents": [
-    "onCommand:copilot-lineage-deriver.generateLineage"
+    "onCommand:copilot-lineage-deriver.generateLineage",
+    "onLanguageModelRequest:copilot"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -18,15 +19,20 @@
       {
         "command": "copilot-lineage-deriver.generateLineage",
         "title": "Generate Lineage CSV from XML"
+      },
+      {
+        "command": "copilot-lineage-deriver.extractLineage",
+        "title": "Extract Lineage via Copilot Chat",
+        "category": "Copilot Lineage"
       }
     ],
     "configuration": {
       "title": "Copilot Lineage Deriver",
       "properties": {
-        "copilotLineageDeriver.xmlFolderPath": {
+        "copilotLineageDeriver.mappingsFolderPath": {
           "type": "string",
-          "default": "informatica",
-          "description": "Relative path to the folder containing XML files"
+          "default": "individual_mappings",
+          "description": "Relative path to the folder containing mapping subfolders with XML files"
         },
         "copilotLineageDeriver.instructionsPath": {
           "type": "string",
@@ -35,21 +41,34 @@
         },
         "copilotLineageDeriver.outputFolder": {
           "type": "string",
-          "default": "output",
+          "default": "lineage_csv",
           "description": "Relative path for the output CSV files"
-        },
-        "copilotLineageDeriver.maxConcurrent": {
-          "type": "number",
-          "default": 5,
-          "description": "Maximum number of concurrent Copilot requests"
         },
         "copilotLineageDeriver.delayBetweenRequests": {
           "type": "number",
-          "default": 1000,
+          "default": 2000,
           "description": "Delay between Copilot requests in milliseconds"
+        },
+        "copilotLineageDeriver.batchSize": {
+          "type": "number",
+          "default": 5,
+          "description": "Number of files to process in each batch"
+        },
+        "copilotLineageDeriver.enableBatchProcessing": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable batch processing for large numbers of files"
         }
       }
-    }
+    },
+    "chatParticipants": [
+      {
+        "id": "copilot-lineage-deriver",
+        "name": "Lineage Deriver",
+        "description": "Extract lineage from XML files using Copilot",
+        "command": "copilot-lineage-deriver.extractLineage"
+      }
+    ]
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",
