@@ -7,98 +7,171 @@ interface ExtensionConfig {
     instructionsPath: string;
     outputFolder: string;
     delayBetweenRequests: number;
+    batchSize: number;
+    enableBatchProcessing: boolean;
+}
+
+interface ProcessingResult {
+    success: boolean;
+    fileCount: number;
+    errorCount: number;
+    outputPath: string;
 }
 
 export function activate(context: vscode.ExtensionContext) {
-    let disposable = vscode.commands.registerCommand('copilot-lineage-deriver.generateLineage', async () => {
-        // Get configuration
-        const config = vscode.workspace.getConfiguration('copilotLineageDeriver');
-        const extensionConfig: ExtensionConfig = {
-            mappingsFolderPath: config.get('mappingsFolderPath', 'individual_mappings'),
-            instructionsPath: config.get('instructionsPath', 'instructions.md'),
-            outputFolder: config.get('outputFolder', 'lineage_csv'),
-            delayBetweenRequests: config.get('delayBetweenRequests', 2000)
-        };
+    // Register the main command for generating lineage
+    let generateLineageCommand = vscode.commands.registerCommand('copilot-lineage-deriver.generateLineage', async () => {
+        const result = await processAllMappings();
+        if (result.success) {
+            vscode.window.showInformationMessage(
+                `Successfully processed ${result.fileCount} XML files. ${result.errorCount} errors occurred. CSV files saved to ${result.outputPath}`
+            );
+        } else {
+            vscode.window.showErrorMessage(`Failed to process mappings. ${result.errorCount} errors occurred.`);
+        }
+    });
 
-        // Check if workspace is open
-        if (!vscode.workspace.workspaceFolders) {
-            vscode.window.showErrorMessage('No workspace folder open.');
-            return;
+    // Register the chat command for @extract-lineage
+    let extractLineageCommand = vscode.commands.registerCommand('copilot-lineage-deriver.extractLineage', async () => {
+        const result = await processAllMappings();
+        
+        // Return a response for the chat interface
+        if (result.success) {
+            return `Lineage extraction completed. Processed ${result.fileCount} XML files with ${result.errorCount} errors. Output saved to ${result.outputPath}`;
+        } else {
+            return `Lineage extraction failed. ${result.errorCount} errors occurred.`;
+        }
+    });
+
+    context.subscriptions.push(generateLineageCommand, extractLineageCommand);
+}
+
+async function processAllMappings(): Promise<ProcessingResult> {
+    // Get configuration
+    const config = vscode.workspace.getConfiguration('copilotLineageDeriver');
+    const extensionConfig: ExtensionConfig = {
+        mappingsFolderPath: config.get('mappingsFolderPath', 'individual_mappings'),
+        instructionsPath: config.get('instructionsPath', 'instructions.md'),
+        outputFolder: config.get('outputFolder', 'lineage_csv'),
+        delayBetweenRequests: config.get('delayBetweenRequests', 2000),
+        batchSize: config.get('batchSize', 5),
+        enableBatchProcessing: config.get('enableBatchProcessing', true)
+    };
+
+    // Check if workspace is open
+    if (!vscode.workspace.workspaceFolders) {
+        vscode.window.showErrorMessage('No workspace folder open.');
+        return { success: false, fileCount: 0, errorCount: 1, outputPath: '' };
+    }
+
+    const workspaceFolder = vscode.workspace.workspaceFolders[0].uri;
+    const instructionsUri = vscode.Uri.joinPath(workspaceFolder, extensionConfig.instructionsPath);
+    const mappingsFolderUri = vscode.Uri.joinPath(workspaceFolder, extensionConfig.mappingsFolderPath);
+    const outputFolderUri = vscode.Uri.joinPath(workspaceFolder, extensionConfig.outputFolder);
+
+    try {
+        // Read instructions
+        const instructions = await vscode.workspace.fs.readFile(instructionsUri);
+        const instructionsText = Buffer.from(instructions).toString('utf8');
+
+        // Create output directory if it doesn't exist
+        try {
+            await vscode.workspace.fs.createDirectory(outputFolderUri);
+        } catch (err) {
+            // Directory might already exist
         }
 
-        const workspaceFolder = vscode.workspace.workspaceFolders[0].uri;
-        const instructionsUri = vscode.Uri.joinPath(workspaceFolder, extensionConfig.instructionsPath);
-        const mappingsFolderUri = vscode.Uri.joinPath(workspaceFolder, extensionConfig.mappingsFolderPath);
-        const outputFolderUri = vscode.Uri.joinPath(workspaceFolder, extensionConfig.outputFolder);
+        // Get all subfolders in the mappings folder
+        const subfolders = await vscode.workspace.fs.readDirectory(mappingsFolderUri);
+        const subfolderUris = subfolders
+            .filter(([name, type]) => type === vscode.FileType.Directory)
+            .map(([name]) => vscode.Uri.joinPath(mappingsFolderUri, name))
+            .sort(); // Sort alphabetically
 
-        try {
-            // Read instructions
-            const instructions = await vscode.workspace.fs.readFile(instructionsUri);
-            const instructionsText = Buffer.from(instructions).toString('utf8');
+        if (subfolderUris.length === 0) {
+            vscode.window.showInformationMessage('No subfolders found in the mappings folder.');
+            return { success: false, fileCount: 0, errorCount: 0, outputPath: '' };
+        }
 
-            // Create output directory if it doesn't exist
-            try {
-                await vscode.workspace.fs.createDirectory(outputFolderUri);
-            } catch (err) {
-                // Directory might already exist
+        let totalProcessed = 0;
+        let errorCount = 0;
+
+        // Process files with progress indicator
+        await vscode.window.withProgress({
+            location: vscode.ProgressLocation.Notification,
+            title: "Generating Lineage CSV Files with Copilot",
+            cancellable: true
+        }, async (progress, token) => {
+            let totalFiles = 0;
+
+            // First, count total files for progress reporting
+            for (const subfolderUri of subfolderUris) {
+                if (token.isCancellationRequested) break;
+                
+                const xmlFiles = await vscode.workspace.fs.readDirectory(subfolderUri);
+                totalFiles += xmlFiles.filter(([name, type]) => 
+                    type === vscode.FileType.File && name.endsWith('.xml')
+                ).length;
             }
 
-            // Get all subfolders in the mappings folder
-            const subfolders = await vscode.workspace.fs.readDirectory(mappingsFolderUri);
-            const subfolderUris = subfolders
-                .filter(([name, type]) => type === vscode.FileType.Directory)
-                .map(([name]) => vscode.Uri.joinPath(mappingsFolderUri, name))
-                .sort(); // Sort alphabetically
+            // Process each subfolder
+            for (const subfolderUri of subfolderUris) {
+                if (token.isCancellationRequested) break;
 
-            if (subfolderUris.length === 0) {
-                vscode.window.showInformationMessage('No subfolders found in the mappings folder.');
-                return;
-            }
+                const subfolderName = path.basename(subfolderUri.fsPath);
+                
+                // Get XML files in this subfolder
+                const xmlFiles = await vscode.workspace.fs.readDirectory(subfolderUri);
+                const xmlFileUris = xmlFiles
+                    .filter(([name, type]) => type === vscode.FileType.File && name.endsWith('.xml'))
+                    .map(([name]) => vscode.Uri.joinPath(subfolderUri, name))
+                    .sort(); // Sort alphabetically
 
-            // Process files with progress indicator
-            await vscode.window.withProgress({
-                location: vscode.ProgressLocation.Notification,
-                title: "Generating Lineage CSV Files with Copilot",
-                cancellable: true
-            }, async (progress, token) => {
-                let totalProcessed = 0;
-                let totalFiles = 0;
-
-                // First, count total files for progress reporting
-                for (const subfolderUri of subfolderUris) {
-                    if (token.isCancellationRequested) break;
-                    
-                    const xmlFiles = await vscode.workspace.fs.readDirectory(subfolderUri);
-                    totalFiles += xmlFiles.filter(([name, type]) => 
-                        type === vscode.FileType.File && name.endsWith('.xml')
-                    ).length;
+                if (xmlFileUris.length === 0) {
+                    continue;
                 }
 
-                // Process each subfolder
-                for (const subfolderUri of subfolderUris) {
-                    if (token.isCancellationRequested) break;
+                // Create output subfolder
+                const outputSubfolderUri = vscode.Uri.joinPath(outputFolderUri, subfolderName);
+                try {
+                    await vscode.workspace.fs.createDirectory(outputSubfolderUri);
+                } catch (err) {
+                    // Directory might already exist
+                }
 
-                    const subfolderName = path.basename(subfolderUri.fsPath);
-                    
-                    // Get XML files in this subfolder
-                    const xmlFiles = await vscode.workspace.fs.readDirectory(subfolderUri);
-                    const xmlFileUris = xmlFiles
-                        .filter(([name, type]) => type === vscode.FileType.File && name.endsWith('.xml'))
-                        .map(([name]) => vscode.Uri.joinPath(subfolderUri, name))
-                        .sort(); // Sort alphabetically
+                // Process files in batches if enabled
+                if (extensionConfig.enableBatchProcessing && extensionConfig.batchSize > 1) {
+                    // Process in batches
+                    for (let i = 0; i < xmlFileUris.length; i += extensionConfig.batchSize) {
+                        if (token.isCancellationRequested) break;
 
-                    if (xmlFileUris.length === 0) {
-                        continue;
+                        const batch = xmlFileUris.slice(i, i + extensionConfig.batchSize);
+                        const batchResults = await Promise.allSettled(
+                            batch.map(xmlUri => processXmlFileWithRetry(
+                                xmlUri, outputSubfolderUri, instructionsText, extensionConfig.delayBetweenRequests
+                            ))
+                        );
+
+                        for (const result of batchResults) {
+                            if (result.status === 'fulfilled') {
+                                totalProcessed++;
+                            } else {
+                                errorCount++;
+                                console.error('Error processing file:', result.reason);
+                            }
+                        }
+
+                        progress.report({ 
+                            increment: (batch.length * 100 / totalFiles), 
+                            message: `Processed ${totalProcessed}/${totalFiles} files (${errorCount} errors)` 
+                        });
+
+                        // Add delay between batches
+                        if (i + extensionConfig.batchSize < xmlFileUris.length) {
+                            await setTimeout(extensionConfig.delayBetweenRequests);
+                        }
                     }
-
-                    // Create output subfolder
-                    const outputSubfolderUri = vscode.Uri.joinPath(outputFolderUri, subfolderName);
-                    try {
-                        await vscode.workspace.fs.createDirectory(outputSubfolderUri);
-                    } catch (err) {
-                        // Directory might already exist
-                    }
-
+                } else {
                     // Process each XML file sequentially (one by one)
                     for (const xmlUri of xmlFileUris) {
                         if (token.isCancellationRequested) break;
@@ -113,30 +186,57 @@ export function activate(context: vscode.ExtensionContext) {
                             
                             progress.report({ 
                                 increment: (100 / totalFiles), 
-                                message: `Processed ${totalProcessed}/${totalFiles} files` 
+                                message: `Processed ${totalProcessed}/${totalFiles} files (${errorCount} errors)` 
                             });
                             
-                            // Add delay between requests as specified in instructions
+                            // Add delay between requests
                             await setTimeout(extensionConfig.delayBetweenRequests);
                         } catch (error) {
+                            errorCount++;
                             vscode.window.showErrorMessage(`Error processing ${path.basename(xmlUri.fsPath)}: ${error}`);
                         }
                     }
                 }
+            }
 
-                if (token.isCancellationRequested) {
-                    vscode.window.showInformationMessage('CSV generation cancelled.');
-                } else {
-                    vscode.window.showInformationMessage(`Successfully processed ${totalProcessed} XML files. CSV files saved to ${extensionConfig.outputFolder}`);
-                }
-            });
+            if (token.isCancellationRequested) {
+                vscode.window.showInformationMessage('CSV generation cancelled.');
+            }
+        });
 
+        return { 
+            success: errorCount === 0, 
+            fileCount: totalProcessed, 
+            errorCount, 
+            outputPath: extensionConfig.outputFolder 
+        };
+
+    } catch (error) {
+        vscode.window.showErrorMessage(`Error: ${error}`);
+        return { success: false, fileCount: 0, errorCount: 1, outputPath: '' };
+    }
+}
+
+async function processXmlFileWithRetry(
+    xmlUri: vscode.Uri, 
+    outputSubfolderUri: vscode.Uri, 
+    instructionsText: string, 
+    delay: number,
+    maxRetries = 3
+): Promise<void> {
+    let lastError;
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+            await processXmlFile(xmlUri, outputSubfolderUri, instructionsText);
+            return;
         } catch (error) {
-            vscode.window.showErrorMessage(`Error: ${error}`);
+            lastError = error;
+            if (attempt < maxRetries) {
+                await setTimeout(delay * attempt); // Exponential backoff
+            }
         }
-    });
-
-    context.subscriptions.push(disposable);
+    }
+    throw lastError;
 }
 
 async function processXmlFile(xmlUri: vscode.Uri, outputSubfolderUri: vscode.Uri, instructionsText: string): Promise<void> {
@@ -150,6 +250,7 @@ async function processXmlFile(xmlUri: vscode.Uri, outputSubfolderUri: vscode.Uri
     // Create the prompt using the Language Model API format
     const messages: vscode.LanguageModelChatMessage[] = [
         vscode.LanguageModelChatMessage.User(`
+@extract-lineage
 ${instructionsText}
 
 XML File Name: ${fileName}
