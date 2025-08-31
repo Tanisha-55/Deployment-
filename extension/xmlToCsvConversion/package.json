@@ -51,7 +51,7 @@
           "description": "Delay between Copilot requests in milliseconds"
         },
         "copilotLineageDeriver.batchSize": {
-          "type": "number",
+          "Type": "number",
           "default": 5,
           "description": "Number of files to process in each batch"
         },
@@ -69,7 +69,21 @@
         "description": "Extract lineage from XML files using Copilot",
         "fullName": "Lineage Extractor",
         "icon": "$(file-code)",
-        "when": "resourceExtname == .xml"
+        "when": "resourceExtname == .xml",
+        "commands": [
+          {
+            "name": "extract-all",
+            "description": "Extract lineage from all XML files in the workspace"
+          },
+          {
+            "name": "extract-current",
+            "description": "Extract lineage from the currently active XML file"
+          },
+          {
+            "name": "extract-folder",
+            "description": "Extract lineage from XML files in a specific folder"
+          }
+        ]
       }
     ]
   },
