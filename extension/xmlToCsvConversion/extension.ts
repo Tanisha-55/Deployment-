@@ -58,9 +58,11 @@ export function activate(context: vscode.ExtensionContext) {
             async (request: vscode.ChatRequest, context: vscode.ChatContext, stream: vscode.ChatResponseStream, token: vscode.CancellationToken) => {
                 console.log('Chat participant invoked with prompt:', request.prompt);
                 
+                // Check if the user provided a specific command in the prompt
+                const prompt = request.prompt.toLowerCase();
                 let result: ProcessingResult;
                 
-                if (request.command === 'extract-current') {
+                if (prompt.includes('current') || prompt.includes('this file')) {
                     // Extract lineage from current file
                     const editor = vscode.window.activeTextEditor;
                     if (!editor || !editor.document.fileName.endsWith('.xml')) {
@@ -69,6 +71,21 @@ export function activate(context: vscode.ExtensionContext) {
                     }
                     
                     result = await processSingleFile(editor.document.uri);
+                } else if (prompt.includes('folder') || prompt.includes('directory')) {
+                    // Extract lineage from a specific folder
+                    const folder = await vscode.window.showOpenDialog({
+                        canSelectFiles: false,
+                        canSelectFolders: true,
+                        canSelectMany: false,
+                        openLabel: 'Select folder with XML files'
+                    });
+                    
+                    if (!folder || folder.length === 0) {
+                        stream.markdown('No folder selected.');
+                        return;
+                    }
+                    
+                    result = await processFolder(folder[0]);
                 } else {
                     // Default: extract all
                     result = await processAllMappings();
@@ -76,7 +93,7 @@ export function activate(context: vscode.ExtensionContext) {
                 
                 // Return a response for the chat interface
                 if (result.success) {
-                    stream.markdown(`Lineage extraction completed. Processed ${result.fileCount} XML files with ${result.errorCount} errors. Output saved to ${result.outputPath}`);
+                    stream.markdown(`✅ Lineage extraction completed. Processed ${result.fileCount} XML files with ${result.errorCount} errors. Output saved to ${result.outputPath}`);
                     
                     // Add follow-up options
                     if (vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0) {
@@ -92,7 +109,7 @@ export function activate(context: vscode.ExtensionContext) {
                         title: 'Run Again'
                     });
                 } else {
-                    stream.markdown(`Lineage extraction failed. ${result.errorCount} errors occurred.`);
+                    stream.markdown(`❌ Lineage extraction failed. ${result.errorCount} errors occurred.`);
                 }
             }
         );
@@ -275,6 +292,113 @@ async function processAllMappings(): Promise<ProcessingResult> {
             fileCount: totalProcessed, 
             errorCount, 
             outputPath: extensionConfig.outputFolder 
+        };
+
+    } catch (error) {
+        vscode.window.showErrorMessage(`Error: ${error}`);
+        return { success: false, fileCount: 0, errorCount: 1, outputPath: '' };
+    }
+}
+
+async function processFolder(folderUri: vscode.Uri): Promise<ProcessingResult> {
+    // Get configuration
+    const config = vscode.workspace.getConfiguration('copilotLineageDeriver');
+    const extensionConfig: ExtensionConfig = {
+        mappingsFolderPath: config.get('mappingsFolderPath', 'individual_mappings'),
+        instructionsPath: config.get('instructionsPath', 'instructions.md'),
+        outputFolder: config.get('outputFolder', 'lineage_csv'),
+        delayBetweenRequests: config.get('delayBetweenRequests', 2000),
+        batchSize: config.get('batchSize', 5),
+        enableBatchProcessing: config.get('enableBatchProcessing', true)
+    };
+
+    // Check if workspace is open
+    if (!vscode.workspace.workspaceFolders) {
+        vscode.window.showErrorMessage('No workspace folder open.');
+        return { success: false, fileCount: 0, errorCount: 1, outputPath: '' };
+    }
+
+    const workspaceFolder = vscode.workspace.workspaceFolders[0].uri;
+    const instructionsUri = vscode.Uri.joinPath(workspaceFolder, extensionConfig.instructionsPath);
+    const outputFolderUri = vscode.Uri.joinPath(workspaceFolder, extensionConfig.outputFolder);
+
+    try {
+        // Read instructions
+        const instructions = await vscode.workspace.fs.readFile(instructionsUri);
+        const instructionsText = Buffer.from(instructions).toString('utf8');
+
+        // Create output directory if it doesn't exist
+        try {
+            await vscode.workspace.fs.createDirectory(outputFolderUri);
+        } catch (err) {
+            // Directory might already exist
+        }
+
+        // Get XML files in the selected folder
+        const xmlFiles = await vscode.workspace.fs.readDirectory(folderUri);
+        const xmlFileUris = xmlFiles
+            .filter(([name, type]) => type === vscode.FileType.File && name.endsWith('.xml'))
+            .map(([name]) => vscode.Uri.joinPath(folderUri, name))
+            .sort(); // Sort alphabetically
+
+        if (xmlFileUris.length === 0) {
+            vscode.window.showInformationMessage('No XML files found in the selected folder.');
+            return { success: false, fileCount: 0, errorCount: 0, outputPath: '' };
+        }
+
+        // Create output subfolder using the folder name
+        const folderName = path.basename(folderUri.fsPath);
+        const outputSubfolderUri = vscode.Uri.joinPath(outputFolderUri, folderName);
+        try {
+            await vscode.workspace.fs.createDirectory(outputSubfolderUri);
+        } catch (err) {
+            // Directory might already exist
+        }
+
+        let totalProcessed = 0;
+        let errorCount = 0;
+
+        // Process files with progress indicator
+        await vscode.window.withProgress({
+            location: vscode.ProgressLocation.Notification,
+            title: "Generating Lineage CSV Files with Copilot",
+            cancellable: true
+        }, async (progress, token) => {
+            // Process each XML file sequentially (one by one)
+            for (const xmlUri of xmlFileUris) {
+                if (token.isCancellationRequested) break;
+
+                try {
+                    progress.report({ 
+                        message: `Processing ${path.basename(xmlUri.fsPath)}...` 
+                    });
+                    
+                    await processXmlFile(xmlUri, outputSubfolderUri, instructionsText);
+                    totalProcessed++;
+                    
+                    progress.report({ 
+                        increment: (100 / xmlFileUris.length), 
+                        message: `Processed ${totalProcessed}/${xmlFileUris.length} files (${errorCount} errors)` 
+                    });
+                    
+                    // Add delay between requests
+                    await setTimeout(extensionConfig.delayBetweenRequests);
+                } catch (error) {
+                    errorCount++;
+                    vscode.window.showErrorMessage(`Error processing ${path.basename(xmlUri.fsPath)}: ${error}`);
+                }
+            }
+
+            if (token.isCancellationRequested) {
+                vscode.window.showInformationMessage('CSV generation cancelled.');
+            }
+        });
+
+        return { 
+            success: errorCount === 0, 
+            fileCount: totalProcessed, 
+            errorCount, 
+            outputPath: path.join(extensionConfig.outputFolder, folderName) 
         };
 
     } catch (error) {
