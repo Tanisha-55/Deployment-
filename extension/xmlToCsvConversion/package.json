@@ -1,6 +1,6 @@
 {
-  "name": "xml-to-csv-lineage",
-  "displayName": "XML to CSV Lineage with Copilot",
+  "name": "copilot-lineage-deriver",
+  "displayName": "Copilot Lineage Deriver",
   "description": "Generate lineage CSV files from XML using Copilot agent mode",
   "version": "1.0.0",
   "engines": {
@@ -10,38 +10,43 @@
     "Other"
   ],
   "activationEvents": [
-    "onCommand:xml-to-csv-lineage.generateLineage"
+    "onCommand:copilot-lineage-deriver.generateLineage"
   ],
   "main": "./out/extension.js",
   "contributes": {
     "commands": [
       {
-        "command": "xml-to-csv-lineage.generateLineage",
+        "command": "copilot-lineage-deriver.generateLineage",
         "title": "Generate Lineage CSV from XML"
       }
     ],
     "configuration": {
-      "title": "XML to CSV Lineage",
+      "title": "Copilot Lineage Deriver",
       "properties": {
-        "xmlToCsvLineage.xmlFolderPath": {
+        "copilotLineageDeriver.xmlFolderPath": {
           "type": "string",
           "default": "informatica",
           "description": "Relative path to the folder containing XML files"
         },
-        "xmlToCsvLineage.instructionsPath": {
+        "copilotLineageDeriver.instructionsPath": {
           "type": "string",
           "default": "instructions.md",
           "description": "Relative path to the instructions markdown file"
         },
-        "xmlToCsvLineage.outputFolder": {
+        "copilotLineageDeriver.outputFolder": {
           "type": "string",
           "default": "output",
           "description": "Relative path for the output CSV files"
         },
-        "xmlToCsvLineage.maxConcurrent": {
+        "copilotLineageDeriver.maxConcurrent": {
           "type": "number",
           "default": 5,
           "description": "Maximum number of concurrent Copilot requests"
+        },
+        "copilotLineageDeriver.delayBetweenRequests": {
+          "type": "number",
+          "default": 1000,
+          "description": "Delay between Copilot requests in milliseconds"
         }
       }
     }
@@ -55,8 +60,5 @@
     "@types/vscode": "^1.85.0",
     "@types/node": "16.x",
     "typescript": "^4.9.4"
-  },
-  "dependencies": {
-    "fast-xml-parser": "^4.2.5"
   }
 }
