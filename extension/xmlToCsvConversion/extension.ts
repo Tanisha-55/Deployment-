@@ -52,7 +52,7 @@ export function activate(context: vscode.ExtensionContext) {
     // Register the chat participant for @extract-lineage
     const chatParticipant = vscode.chat.createChatParticipant(
         'copilot-lineage-deriver.extract-lineage',
-        async (request: vscode.ChatRequest, context: vscode.ChatContext, response: vscode.ChatResponse, token: vscode.CancellationToken) => {
+        async (request: vscode.ChatRequest, context: vscode.ChatContext, stream: vscode.ChatResponseStream, token: vscode.CancellationToken) => {
             // Check which command was used
             const command = request.command;
             
@@ -62,7 +62,7 @@ export function activate(context: vscode.ExtensionContext) {
                 // Extract lineage from current file
                 const editor = vscode.window.activeTextEditor;
                 if (!editor || !editor.document.fileName.endsWith('.xml')) {
-                    response.markdown = 'Please open an XML file first to use this command.';
+                    stream.markdown('Please open an XML file first to use this command.');
                     return;
                 }
                 
@@ -77,7 +77,7 @@ export function activate(context: vscode.ExtensionContext) {
                 });
                 
                 if (!folder || folder.length === 0) {
-                    response.markdown = 'No folder selected.';
+                    stream.markdown('No folder selected.');
                     return;
                 }
                 
@@ -89,22 +89,23 @@ export function activate(context: vscode.ExtensionContext) {
             
             // Return a response for the chat interface
             if (result.success) {
-                response.markdown = `Lineage extraction completed. Processed ${result.fileCount} XML files with ${result.errorCount} errors. Output saved to ${result.outputPath}`;
+                stream.markdown(`Lineage extraction completed. Processed ${result.fileCount} XML files with ${result.errorCount} errors. Output saved to ${result.outputPath}`);
                 
                 // Add follow-up options
-                response.followups = [
-                    {
-                        label: 'Show Output Folder',
+                if (vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0) {
+                    stream.button({
                         command: 'revealFileInOS',
-                        args: [vscode.Uri.joinPath(vscode.workspace.workspaceFolders![0].uri, result.outputPath)]
-                    },
-                    {
-                        label: 'Run Again',
-                        command: 'copilot-lineage-deriver.generateLineage'
-                    }
-                ];
+                        arguments: [vscode.Uri.joinPath(vscode.workspace.workspaceFolders[0].uri, result.outputPath)],
+                        title: 'Show Output Folder'
+                    });
+                }
+                
+                stream.button({
+                    command: 'copilot-lineage-deriver.generateLineage',
+                    title: 'Run Again'
+                });
             } else {
-                response.markdown = `Lineage extraction failed. ${result.errorCount} errors occurred.`;
+                stream.markdown(`Lineage extraction failed. ${result.errorCount} errors occurred.`);
             }
         }
     );
