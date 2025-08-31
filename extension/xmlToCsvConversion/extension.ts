@@ -56,13 +56,11 @@ export function activate(context: vscode.ExtensionContext) {
         const chatParticipant = vscode.chat.createChatParticipant(
             'extract-lineage',
             async (request: vscode.ChatRequest, context: vscode.ChatContext, stream: vscode.ChatResponseStream, token: vscode.CancellationToken) => {
-                console.log('Chat participant invoked with prompt:', request.prompt);
+                console.log('Chat participant invoked with command:', request.command, 'and prompt:', request.prompt);
                 
-                // Check if the user provided a specific command in the prompt
-                const prompt = request.prompt.toLowerCase();
                 let result: ProcessingResult;
                 
-                if (prompt.includes('current') || prompt.includes('this file')) {
+                if (request.command === 'extract-current') {
                     // Extract lineage from current file
                     const editor = vscode.window.activeTextEditor;
                     if (!editor || !editor.document.fileName.endsWith('.xml')) {
@@ -71,7 +69,7 @@ export function activate(context: vscode.ExtensionContext) {
                     }
                     
                     result = await processSingleFile(editor.document.uri);
-                } else if (prompt.includes('folder') || prompt.includes('directory')) {
+                } else if (request.command === 'extract-folder') {
                     // Extract lineage from a specific folder
                     const folder = await vscode.window.showOpenDialog({
                         canSelectFiles: false,
