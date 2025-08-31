@@ -173,60 +173,81 @@ class DeploymentAssistantProvider {
     }
 
     async handleChatRequest(
-        request: vscode.chat.ChatRequest,
-        context: any,
-        response: any,
-        token: vscode.CancellationToken
-    ): Promise<void> {
-        this.log(`Received chat request: "${request.prompt}"`);
+    request: vscode.chat.ChatRequest,
+    context: any,
+    response: any,
+    token: vscode.CancellationToken
+): Promise<void> {
+    this.log(`Received chat request: "${request.prompt}"`);
+    
+    // Check if this is a command invocation
+    if (request.command) {
+        this.log(`Received command: ${request.command}`);
         
-        // Parse the command from the prompt
-        const command = this.parseCommand(request.prompt);
-        
-        switch (command) {
+        switch (request.command) {
             case 'deploy':
                 await this.handleDeployCommand(request, response, token);
                 break;
-            case 'deploy status':
+            case 'deploy-status':
                 await this.handleStatusCommand(response);
                 break;
-            case 'deploy help':
+            case 'deploy-help':
                 await this.handleHelpCommand(response);
                 break;
-            case '':
-                // No command specified, show help
-                response.markdown('Deployment Assistant is ready. Use `@deploy` to start automation, `@deploy status` for status, or `@deploy help` for assistance.');
-                break;
             default:
-                response.markdown(`Unknown command: ${command}. Use @deploy, @deploy status, or @deploy help.`);
+                response.markdown(`Unknown command: ${request.command}. Use @deploy, @deploy-status, or @deploy-help.`);
                 break;
         }
+        return;
     }
+    
+    // If no command, parse from the prompt
+    const command = this.parseCommand(request.prompt);
+    
+    switch (command) {
+        case 'deploy':
+            await this.handleDeployCommand(request, response, token);
+            break;
+        case 'deploy-status':
+            await this.handleStatusCommand(response);
+            break;
+        case 'deploy-help':
+            await this.handleHelpCommand(response);
+            break;
+        case '':
+            // No command specified, show help
+            response.markdown('Deployment Assistant is ready. Use `@deploy` to start automation, `@deploy-status` for status, or `@deploy-help` for assistance.');
+            break;
+        default:
+            response.markdown(`Unknown command: ${command}. Use @deploy, @deploy-status, or @deploy-help.`);
+            break;
+    }
+}
 
-    // Parse the command from the prompt
-    private parseCommand(prompt: string): string {
-        // Remove the @DeploymentAssistant mention and any leading/trailing slashes
-        const cleanPrompt = prompt
-            .replace(/@DeploymentAssistant/gi, '')
-            .replace(/^\//, '')
-            .trim();
-        
-        // Handle empty prompt
-        if (!cleanPrompt) return '';
-        
-        // Handle help command variations
-        if (cleanPrompt.toLowerCase().includes('help')) {
-            return 'deploy help';
-        }
-        
-        // Handle status command variations
-        if (cleanPrompt.toLowerCase().includes('status')) {
-            return 'deploy status';
-        }
-        
-        // Default to deploy command
-        return 'deploy';
+    // Update the parseCommand method to handle the new command names
+private parseCommand(prompt: string): string {
+    // Remove the @DeploymentAssistant mention and any leading/trailing slashes
+    const cleanPrompt = prompt
+        .replace(/@DeploymentAssistant/gi, '')
+        .replace(/^\//, '')
+        .trim();
+    
+    // Handle empty prompt
+    if (!cleanPrompt) return '';
+    
+    // Handle help command variations
+    if (cleanPrompt.toLowerCase().includes('help')) {
+        return 'deploy-help';
     }
+    
+    // Handle status command variations
+    if (cleanPrompt.toLowerCase().includes('status')) {
+        return 'deploy-status';
+    }
+    
+    // Default to deploy command
+    return 'deploy';
+}
 
     private async handleDeployCommand(request: any, response: any, token: vscode.CancellationToken) {
         response.markdown('🚀 Starting deployment automation...\n\nI\'ll process your CSV metadata and cleanse SQL files.\n\n');
