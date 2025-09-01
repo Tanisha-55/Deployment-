@@ -2,14 +2,14 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import { setTimeout } from 'timers/promises';
 
-
 interface ExtensionConfig {
-    mappingsFolderPath: string;
+    inputFolder: string;
     outputFolder: string;
     delayBetweenRequests: number;
     batchSize: number;
     enableBatchProcessing: boolean;
     fileTypeInstructions: Record<string, string>;
+    defaultInstructionFile: string;
 }
 
 interface ProcessingResult {
@@ -35,26 +35,12 @@ export function activate(context: vscode.ExtensionContext) {
         const result = await processAllMappings();
         const processingTime = (Date.now() - startTime) / 1000; // Convert to seconds
         
-        if (result.success) {
-            // Create detailed summary message
-            let summaryMessage = `✅ Lineage extraction completed in ${processingTime.toFixed(2)} seconds.\n\n`;
-            summaryMessage += `📊 Summary:\n`;
-            summaryMessage += `• Total input files: ${result.totalFiles}\n`;
-            summaryMessage += `• Successfully processed: ${result.processedFiles}\n`;
-            summaryMessage += `• Errors: ${result.errorCount}\n`;
-            summaryMessage += `• Accuracy: ${((result.processedFiles / result.totalFiles) * 100).toFixed(2)}%\n\n`;
-            
-            summaryMessage += `📁 Folder-wise breakdown:\n`;
-            for (const [folder, stats] of Object.entries(result.folderStats)) {
-                summaryMessage += `• ${folder}: ${stats.input} input → ${stats.output} output (${stats.errors} errors)\n`;
-            }
-            
-            summaryMessage += `\n📂 Output saved to: ${result.outputPath}`;
-            
-            vscode.window.showInformationMessage(summaryMessage);
-        } else {
-            vscode.window.showErrorMessage(`Failed to process mappings. ${result.errorCount} errors occurred.`);
-        }
+        showProcessingSummary(result, processingTime);
+    });
+
+    // Register command to show configuration
+    let showConfigurationCommand = vscode.commands.registerCommand('copilot-lineage-deriver.showConfiguration', async () => {
+        showCurrentConfiguration();
     });
 
     // Register the chat participant for @extract-lineage
@@ -64,9 +50,14 @@ export function activate(context: vscode.ExtensionContext) {
             async (request: vscode.ChatRequest, context: vscode.ChatContext, stream: vscode.ChatResponseStream, token: vscode.CancellationToken) => {
                 console.log('Chat participant invoked with command:', request.command, 'and prompt:', request.prompt);
                 
-                // Show a welcome message if no command is specified
-                if (!request.command) {
-                    stream.markdown(`👋 Welcome to the Lineage Extractor!\n\nAvailable commands:\n• \`@extract-lineage extract-all\` - Process all files\n• \`@extract-lineage extract-folder\` - Process files in a specific folder`);
+                // Show help if no command is specified or if help is requested
+                if (!request.command || request.command === 'show-help') {
+                    showHelpInformation(stream);
+                    return;
+                }
+                
+                if (request.command === 'show-config') {
+                    showConfigurationInChat(stream);
                     return;
                 }
                 
@@ -79,59 +70,25 @@ export function activate(context: vscode.ExtensionContext) {
                         canSelectFiles: false,
                         canSelectFolders: true,
                         canSelectMany: false,
-                        openLabel: 'Select folder with files'
+                        openLabel: 'Select folder with source files'
                     });
                     
                     if (!folder || folder.length === 0) {
-                        stream.markdown('No folder selected.');
+                        stream.markdown('No folder selected. Operation cancelled.');
                         return;
                     }
                     
                     result = await processFolder(folder[0]);
                 } else if (request.command === 'extract-all') {
-                    // Default: extract all
+                    // Extract lineage from all configured folders
                     result = await processAllMappings();
                 } else {
-                    stream.markdown(`❌ Unknown command: ${request.command}\n\nAvailable commands:\n• \`extract-all\` - Process all files\n• \`extract-folder\` - Process files in a specific folder`);
+                    stream.markdown(`❌ Unknown command: ${request.command}\n\nUse \`@extract-lineage show-help\` to see available commands.`);
                     return;
                 }
                 
                 const processingTime = (Date.now() - startTime) / 1000; // Convert to seconds
-                
-                // Return a response for the chat interface
-                if (result.success) {
-                    let summaryMessage = `✅ Lineage extraction completed in ${processingTime.toFixed(2)} seconds.\n\n`;
-                    summaryMessage += `📊 Summary:\n`;
-                    summaryMessage += `• Total input files: ${result.totalFiles}\n`;
-                    summaryMessage += `• Successfully processed: ${result.processedFiles}\n`;
-                    summaryMessage += `• Errors: ${result.errorCount}\n`;
-                    summaryMessage += `• Accuracy: ${((result.processedFiles / result.totalFiles) * 100).toFixed(2)}%\n\n`;
-                    
-                    summaryMessage += `📁 Folder-wise breakdown:\n`;
-                    for (const [folder, stats] of Object.entries(result.folderStats)) {
-                        summaryMessage += `• ${folder}: ${stats.input} input → ${stats.output} output (${stats.errors} errors)\n`;
-                    }
-                    
-                    summaryMessage += `\n📂 Output saved to: ${result.outputPath}`;
-                    
-                    stream.markdown(summaryMessage);
-                    
-                    // Add follow-up options
-                    if (vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0) {
-                        stream.button({
-                            command: 'revealFileInOS',
-                            arguments: [vscode.Uri.joinPath(vscode.workspace.workspaceFolders[0].uri, result.outputPath)],
-                            title: 'Show Output Folder'
-                        });
-                    }
-                    
-                    stream.button({
-                        command: 'copilot-lineage-deriver.generateLineage',
-                        title: 'Run Again'
-                    });
-                } else {
-                    stream.markdown(`❌ Lineage extraction failed. ${result.errorCount} errors occurred.`);
-                }
+                showProcessingSummaryInChat(stream, result, processingTime);
             }
         );
 
@@ -144,14 +101,216 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.window.showErrorMessage('Failed to register chat participant. Check the console for details.');
     }
     
-    context.subscriptions.push(generateLineageCommand);
+    context.subscriptions.push(generateLineageCommand, showConfigurationCommand);
+}
+
+function showHelpInformation(stream: vscode.ChatResponseStream) {
+    const config = getConfiguration();
+    
+    stream.markdown(`# 🚀 Copilot Lineage Deriver - Professional Data Lineage Extraction
+
+## 📋 Workflow Overview
+
+The Copilot Lineage Deriver system provides enterprise-grade data lineage extraction from various file types (.xml, .sql, etc.). 
+
+**Processing Flow:**
+1. Source files are organized in subfolders under the parent input folder (${config.inputFolder})
+2. Files are processed ${config.enableBatchProcessing ? `in batches of ${config.batchSize} files` : 'sequentially'}
+3. Each batch is processed with a ${config.delayBetweenRequests}ms delay between requests
+4. Lineage CSV files are generated in the output folder (${config.outputFolder}) with the same structure as input
+
+## 🗂️ Workspace Requirements
+
+To use this extension effectively, structure your workspace as follows:
+
+\`\`\`
+your-workspace/
+├── .vscode/
+│   └── settings.json          # Workspace configuration
+├── ${config.inputFolder}/     # Parent input folder (configurable)
+│   ├── folder1/               # Subfolder with source files
+│   │   ├── file1.xml
+│   │   └── file2.sql
+│   └── folder2/
+│       └── file3.xml
+├── ${config.outputFolder}/    # Generated output folder (configurable)
+│   ├── folder1/
+│   │   ├── file1.csv
+│   │   └── file2.csv
+│   └── folder2/
+│       └── file3.csv
+├── instructions.md            # Default instructions for XML files
+└── sql_instructions.md       # Instructions for SQL files
+\`\`\`
+
+## ⚙️ Configuration Options
+
+Configure the extension through:
+1. **User Settings**: Ctrl+Shift+P → "Preferences: Open Settings (JSON)"
+2. **Workspace Settings**: .vscode/settings.json in your workspace
+
+**Available Settings:**
+\`\`\`json
+{
+  "copilotLineageDeriver.inputFolder": "source_data",
+  "copilotLineageDeriver.outputFolder": "lineage_output",
+  "copilotLineageDeriver.batchSize": 5,
+  "copilotLineageDeriver.delayBetweenRequests": 2000,
+  "copilotLineageDeriver.enableBatchProcessing": true,
+  "copilotLineageDeriver.fileTypeInstructions": {
+    "xml": "instructions.md",
+    "sql": "sql_instructions.md"
+  },
+  "copilotLineageDeriver.defaultInstructionFile": "instructions.md"
+}
+\`\`\`
+
+## 💻 Available Commands
+
+**Chat Commands:**
+- \`@extract-lineage extract-all\` - Process all files in the input folder
+- \`@extract-lineage extract-folder\` - Select and process a specific folder
+- \`@extract-lineage show-config\` - Display current configuration
+- \`@extract-lineage show-help\` - Show this help information
+
+**Command Palette:**
+- "Generate Lineage CSV from Files" - Process all files
+- "Show Lineage Deriver Configuration" - Display current settings
+
+## 🚦 Getting Started
+
+1. Set up your workspace structure as shown above
+2. Configure settings in .vscode/settings.json
+3. Add appropriate instruction files for each file type
+4. Run \`@extract-lineage extract-all\` to generate lineage CSVs
+
+*Note: Ensure GitHub Copilot is enabled for AI-powered lineage extraction.*
+`);
+}
+
+function showConfigurationInChat(stream: vscode.ChatResponseStream) {
+    const config = getConfiguration();
+    
+    stream.markdown(`# ⚙️ Current Configuration
+
+**Input Folder:** \`${config.inputFolder}\`
+**Output Folder:** \`${config.outputFolder}\`
+**Batch Size:** ${config.batchSize} files
+**Request Delay:** ${config.delayBetweenRequests}ms
+**Batch Processing:** ${config.enableBatchProcessing ? 'Enabled' : 'Disabled'}
+**Default Instructions:** \`${config.defaultInstructionFile}\`
+
+**File Type Mappings:**
+${Object.entries(config.fileTypeInstructions)
+    .map(([ext, file]) => `- \`.${ext}\` → \`${file}\``)
+    .join('\n')}
+
+*To modify these settings, edit your .vscode/settings.json file or user settings.*`);
+}
+
+function showCurrentConfiguration() {
+    const config = getConfiguration();
+    
+    let configMessage = `📋 Current Lineage Deriver Configuration:\n\n`;
+    configMessage += `• Input Folder: ${config.inputFolder}\n`;
+    configMessage += `• Output Folder: ${config.outputFolder}\n`;
+    configMessage += `• Batch Size: ${config.batchSize} files\n`;
+    configMessage += `• Request Delay: ${config.delayBetweenRequests}ms\n`;
+    configMessage += `• Batch Processing: ${config.enableBatchProcessing ? 'Enabled' : 'Disabled'}\n`;
+    configMessage += `• Default Instructions: ${config.defaultInstructionFile}\n\n`;
+    
+    configMessage += `File Type Mappings:\n`;
+    for (const [ext, file] of Object.entries(config.fileTypeInstructions)) {
+        configMessage += `• .${ext} → ${file}\n`;
+    }
+    
+    configMessage += `\nEdit these settings in .vscode/settings.json or your user settings.`;
+    
+    vscode.window.showInformationMessage(configMessage);
+}
+
+function showProcessingSummary(result: ProcessingResult, processingTime: number) {
+    if (result.success) {
+        // Create detailed summary message
+        let summaryMessage = `✅ Lineage extraction completed in ${processingTime.toFixed(2)} seconds.\n\n`;
+        summaryMessage += `📊 Summary:\n`;
+        summaryMessage += `• Total input files: ${result.totalFiles}\n`;
+        summaryMessage += `• Successfully processed: ${result.processedFiles}\n`;
+        summaryMessage += `• Errors: ${result.errorCount}\n`;
+        summaryMessage += `• Accuracy: ${((result.processedFiles / result.totalFiles) * 100).toFixed(2)}%\n\n`;
+        
+        summaryMessage += `📁 Folder-wise breakdown:\n`;
+        for (const [folder, stats] of Object.entries(result.folderStats)) {
+            summaryMessage += `• ${folder}: ${stats.input} input → ${stats.output} output (${stats.errors} errors)\n`;
+        }
+        
+        summaryMessage += `\n📂 Output saved to: ${result.outputPath}`;
+        
+        vscode.window.showInformationMessage(summaryMessage);
+    } else {
+        vscode.window.showErrorMessage(`Failed to process mappings. ${result.errorCount} errors occurred.`);
+    }
+}
+
+function showProcessingSummaryInChat(stream: vscode.ChatResponseStream, result: ProcessingResult, processingTime: number) {
+    if (result.success) {
+        let summaryMessage = `✅ Lineage extraction completed in ${processingTime.toFixed(2)} seconds.\n\n`;
+        summaryMessage += `📊 Summary:\n`;
+        summaryMessage += `• Total input files: ${result.totalFiles}\n`;
+        summaryMessage += `• Successfully processed: ${result.processedFiles}\n`;
+        summaryMessage += `• Errors: ${result.errorCount}\n`;
+        summaryMessage += `• Accuracy: ${((result.processedFiles / result.totalFiles) * 100).toFixed(2)}%\n\n`;
+        
+        summaryMessage += `📁 Folder-wise breakdown:\n`;
+        for (const [folder, stats] of Object.entries(result.folderStats)) {
+            summaryMessage += `• ${folder}: ${stats.input} input → ${stats.output} output (${stats.errors} errors)\n`;
+        }
+        
+        summaryMessage += `\n📂 Output saved to: ${result.outputPath}`;
+        
+        stream.markdown(summaryMessage);
+        
+        // Add follow-up options
+        if (vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0) {
+            stream.button({
+                command: 'revealFileInOS',
+                arguments: [vscode.Uri.joinPath(vscode.workspace.workspaceFolders[0].uri, result.outputPath)],
+                title: 'Show Output Folder'
+            });
+        }
+        
+        stream.button({
+            command: 'copilot-lineage-deriver.generateLineage',
+            title: 'Run Again'
+        });
+        
+        stream.button({
+            command: 'copilot-lineage-deriver.showConfiguration',
+            title: 'Show Configuration'
+        });
+    } else {
+        stream.markdown(`❌ Lineage extraction failed. ${result.errorCount} errors occurred.`);
+    }
+}
+
+function getConfiguration(): ExtensionConfig {
+    const config = vscode.workspace.getConfiguration('copilotLineageDeriver');
+    return {
+        inputFolder: config.get('inputFolder', 'individual_mappings'),
+        outputFolder: config.get('outputFolder', 'lineage_csv'),
+        delayBetweenRequests: config.get('delayBetweenRequests', 2000),
+        batchSize: config.get('batchSize', 5),
+        enableBatchProcessing: config.get('enableBatchProcessing', true),
+        fileTypeInstructions: config.get('fileTypeInstructions', { xml: 'instructions.md', sql: 'sql.md' }),
+        defaultInstructionFile: config.get('defaultInstructionFile', 'instructions.md')
+    };
 }
 
 async function processAllMappings(): Promise<ProcessingResult> {
     // Get configuration
     const config = vscode.workspace.getConfiguration('copilotLineageDeriver');
     const extensionConfig: ExtensionConfig = {
-        mappingsFolderPath: config.get('mappingsFolderPath', 'individual_mappings'),
+        inputFolder: config.get('inputFolder', 'individual_mappings'),
         outputFolder: config.get('outputFolder', 'lineage_csv'),
         delayBetweenRequests: config.get('delayBetweenRequests', 2000),
         batchSize: config.get('batchSize', 5),
@@ -174,7 +333,7 @@ async function processAllMappings(): Promise<ProcessingResult> {
     }
 
     const workspaceFolder = vscode.workspace.workspaceFolders[0].uri;
-    const mappingsFolderUri = vscode.Uri.joinPath(workspaceFolder, extensionConfig.mappingsFolderPath);
+    const mappingsFolderUri = vscode.Uri.joinPath(workspaceFolder, extensionConfig.inputFolder);
     const outputFolderUri = vscode.Uri.joinPath(workspaceFolder, extensionConfig.outputFolder);
 
     try {
