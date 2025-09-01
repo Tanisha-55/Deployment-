@@ -513,7 +513,7 @@ async function processFolder(folderUri: vscode.Uri): Promise<ProcessingResult> {
     // Get configuration
     const config = vscode.workspace.getConfiguration('copilotLineageDeriver');
     const extensionConfig: ExtensionConfig = {
-        mappingsFolderPath: config.get('mappingsFolderPath', 'individual_mappings'),
+        inputFolder: config.get('inputFolder', 'individual_mappings'),
         outputFolder: config.get('outputFolder', 'lineage_csv'),
         delayBetweenRequests: config.get('delayBetweenRequests', 2000),
         batchSize: config.get('batchSize', 5),
