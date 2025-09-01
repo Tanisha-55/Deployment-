@@ -33,24 +33,6 @@ export function activate(context: vscode.ExtensionContext) {
         }
     });
 
-    // Register command for single file extraction
-    let extractLineageSingleCommand = vscode.commands.registerCommand('copilot-lineage-deriver.extractLineageSingle', async () => {
-        const editor = vscode.window.activeTextEditor;
-        if (!editor) {
-            vscode.window.showErrorMessage('Please open a file first.');
-            return;
-        }
-
-        const result = await processSingleFile(editor.document.uri);
-        if (result.success) {
-            vscode.window.showInformationMessage(
-                `Successfully processed file. CSV saved to ${result.outputPath}`
-            );
-        } else {
-            vscode.window.showErrorMessage('Failed to process the file.');
-        }
-    });
-
     // Register the chat participant for @extract-lineage
     try {
         const chatParticipant = vscode.chat.createChatParticipant(
@@ -60,16 +42,7 @@ export function activate(context: vscode.ExtensionContext) {
                 
                 let result: ProcessingResult;
                 
-                if (request.command === 'extract-current') {
-                    // Extract lineage from current file
-                    const editor = vscode.window.activeTextEditor;
-                    if (!editor) {
-                        stream.markdown('Please open a file first to use this command.');
-                        return;
-                    }
-                    
-                    result = await processSingleFile(editor.document.uri);
-                } else if (request.command === 'extract-folder') {
+                if (request.command === 'extract-folder') {
                     // Extract lineage from a specific folder
                     const folder = await vscode.window.showOpenDialog({
                         canSelectFiles: false,
@@ -121,10 +94,7 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.window.showErrorMessage('Failed to register chat participant. Check the console for details.');
     }
     
-    context.subscriptions.push(
-        generateLineageCommand, 
-        extractLineageSingleCommand
-    );
+    context.subscriptions.push(generateLineageCommand);
 }
 
 async function processAllMappings(): Promise<ProcessingResult> {
@@ -402,78 +372,6 @@ async function processFolder(folderUri: vscode.Uri): Promise<ProcessingResult> {
     }
 }
 
-async function processSingleFile(fileUri: vscode.Uri): Promise<ProcessingResult> {
-    // Get configuration
-    const config = vscode.workspace.getConfiguration('copilotLineageDeriver');
-    const extensionConfig: ExtensionConfig = {
-        mappingsFolderPath: config.get('mappingsFolderPath', 'individual_mappings'),
-        outputFolder: config.get('outputFolder', 'lineage_csv'),
-        delayBetweenRequests: config.get('delayBetweenRequests', 2000),
-        batchSize: config.get('batchSize', 5),
-        enableBatchProcessing: config.get('enableBatchProcessing', true),
-        fileTypeInstructions: config.get('fileTypeInstructions', { xml: 'instructions.md', sql: 'sql.md' })
-    };
-
-    // Check if workspace is open
-    if (!vscode.workspace.workspaceFolders) {
-        vscode.window.showErrorMessage('No workspace folder open.');
-        return { success: false, fileCount: 0, errorCount: 1, outputPath: '' };
-    }
-
-    const workspaceFolder = vscode.workspace.workspaceFolders[0].uri;
-    const outputFolderUri = vscode.Uri.joinPath(workspaceFolder, extensionConfig.outputFolder);
-
-    try {
-        // Create output directory if it doesn't exist
-        try {
-            await vscode.workspace.fs.createDirectory(outputFolderUri);
-        } catch (err) {
-            // Directory might already exist
-        }
-
-        // Determine the subfolder name based on the file's parent folder
-        const filePath = fileUri.fsPath;
-        const mappingsFolderPath = vscode.Uri.joinPath(workspaceFolder, extensionConfig.mappingsFolderPath).fsPath;
-        
-        let subfolderName = "single_files";
-        if (filePath.startsWith(mappingsFolderPath)) {
-            // Extract the subfolder name from the path
-            const relativePath = path.relative(mappingsFolderPath, path.dirname(filePath));
-            const parts = relativePath.split(path.sep);
-            subfolderName = parts.length > 0 ? parts[0] : "single_files";
-        }
-
-        // Create output subfolder
-        const outputSubfolderUri = vscode.Uri.joinPath(outputFolderUri, subfolderName);
-        try {
-            await vscode.workspace.fs.createDirectory(outputSubfolderUri);
-        } catch (err) {
-            // Directory might already exist
-        }
-
-        // Process the single file
-        await vscode.window.withProgress({
-            location: vscode.ProgressLocation.Notification,
-            title: "Generating Lineage CSV for Single File",
-            cancellable: true
-        }, async (progress, token) => {
-            progress.report({ message: `Processing ${path.basename(fileUri.fsPath)}...` });
-            await processFile(fileUri, outputSubfolderUri, extensionConfig.fileTypeInstructions);
-        });
-
-        return { 
-            success: true, 
-            fileCount: 1, 
-            errorCount: 0, 
-            outputPath: path.join(extensionConfig.outputFolder, subfolderName) 
-        };
-
-    } catch (error) {
-        vscode.window.showErrorMessage(`Error: ${error}`);
-        return { success: false, fileCount: 0, errorCount: 1, outputPath: '' };
-    }
-}
-
 async function processFileWithRetry(
     fileUri: vscode.Uri, 
     outputSubfolderUri: vscode.Uri, 
@@ -544,7 +442,7 @@ async function processFile(
     const fileText = Buffer.from(fileContent).toString('utf8');
 
     // Create a prompt for Copilot using the appropriate instructions
-    const baseFileName = path.basename(fileUri.fsPath);
+    const baseFileName = path.basename(fileUri.fsPath, path.extname(fileUri.fsPath)); // Remove the original extension
     
     // Create the prompt using the Language Model API format
     const messages: vscode.LanguageModelChatMessage[] = [
@@ -565,7 +463,7 @@ Return only the CSV content without any additional explanation or markdown forma
     // Get response from Copilot using Language Model API
     const csvContent = await getCopilotResponse(messages);
 
-    // Save CSV file
+    // Save CSV file - use the base filename without the original extension
     const csvFileName = `${baseFileName}.csv`;
     const csvUri = vscode.Uri.joinPath(outputSubfolderUri, csvFileName);
     await vscode.workspace.fs.writeFile(csvUri, Buffer.from(csvContent, 'utf8'));
