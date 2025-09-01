@@ -617,4 +617,5 @@ async function getCopilotResponse(messages: vscode.LanguageModelChatMessage[]): 
 
 export function deactivate() {
     console.log('Copilot Lineage Deriver extension is now deactivated!');
+    isExtensionActive = false;
 }
