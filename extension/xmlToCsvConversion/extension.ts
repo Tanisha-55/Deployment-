@@ -22,18 +22,32 @@ interface ProcessingResult {
     processingTime: number;
 }
 
-// Global variable to track if the extension is activated
+interface ConversationState {
+    step: 'idle' | 'awaiting_setup' | 'validating' | 'ready' | 'processing';
+    validationResults?: {
+        hasInputFolder: boolean;
+        hasOutputFolder: boolean;
+        hasInstructionFiles: boolean;
+        hasSourceFiles: boolean;
+        folderStructure: string[];
+        issues: string[];
+    };
+}
+
+// Global variables
 let isExtensionActive = false;
+let conversationState: ConversationState = { step: 'idle' };
 
 export function activate(context: vscode.ExtensionContext) {
     console.log('Copilot Lineage Deriver extension is now active!');
     isExtensionActive = true;
+    conversationState = { step: 'idle' };
 
     // Register the main command for generating lineage
     let generateLineageCommand = vscode.commands.registerCommand('copilot-lineage-deriver.generateLineage', async () => {
         const startTime = Date.now();
         const result = await processAllMappings();
-        const processingTime = (Date.now() - startTime) / 1000; // Convert to seconds
+        const processingTime = (Date.now() - startTime) / 1000;
         
         showProcessingSummary(result, processingTime);
     });
@@ -43,6 +57,12 @@ export function activate(context: vscode.ExtensionContext) {
         showCurrentConfiguration();
     });
 
+    // Register command to validate workspace
+    let validateWorkspaceCommand = vscode.commands.registerCommand('copilot-lineage-deriver.validateWorkspace', async () => {
+        const validationResults = await validateWorkspaceSetup();
+        showValidationResults(validationResults);
+    });
+
     // Register the chat participant for @extract-lineage
     try {
         const chatParticipant = vscode.chat.createChatParticipant(
@@ -50,45 +70,56 @@ export function activate(context: vscode.ExtensionContext) {
             async (request: vscode.ChatRequest, context: vscode.ChatContext, stream: vscode.ChatResponseStream, token: vscode.CancellationToken) => {
                 console.log('Chat participant invoked with command:', request.command, 'and prompt:', request.prompt);
                 
-                // Show help if no command is specified or if help is requested
-                if (!request.command || request.command === 'show-help') {
-                    showHelpInformation(stream);
-                    return;
+                // Handle different conversation states
+                switch (conversationState.step) {
+                    case 'idle':
+                        if (!request.command || request.command === 'show-help') {
+                            showHelpInformation(stream);
+                            conversationState.step = 'awaiting_setup';
+                        } else if (request.command === 'validate-workspace') {
+                            await handleValidation(stream);
+                        } else if (request.command === 'extract-all') {
+                            await handleExtraction(stream);
+                        } else if (request.command === 'extract-folder') {
+                            await handleFolderExtraction(stream);
+                        } else {
+                            stream.markdown(`I'm not sure what you'd like to do. Use \`@extract-lineage show-help\` to see available options.`);
+                        }
+                        break;
+                        
+                    case 'awaiting_setup':
+                        if (request.prompt.toLowerCase().includes('yes') || 
+                            request.prompt.toLowerCase().includes('ready') ||
+                            request.prompt.toLowerCase().includes('done')) {
+                            await handleValidation(stream);
+                        } else if (request.prompt.toLowerCase().includes('no') || 
+                                  request.prompt.toLowerCase().includes('not ready')) {
+                            stream.markdown(`Take your time to set up the workspace. When you're ready, just type 'yes' or 'ready' to continue.`);
+                        } else {
+                            stream.markdown(`I'm not sure I understand. Have you set up the workspace structure as explained? (yes/no)`);
+                        }
+                        break;
+                        
+                    case 'ready':
+                        if (request.command === 'extract-all') {
+                            await handleExtraction(stream);
+                        } else if (request.command === 'extract-folder') {
+                            await handleFolderExtraction(stream);
+                        } else if (request.prompt.toLowerCase().includes('yes')) {
+                            await handleExtraction(stream);
+                        } else if (request.prompt.toLowerCase().includes('no')) {
+                            stream.markdown(`Okay, let me know when you're ready to proceed with the extraction.`);
+                            conversationState.step = 'idle';
+                        } else {
+                            stream.markdown(`Would you like to proceed with extracting lineage from all files? (yes/no)`);
+                        }
+                        break;
+                        
+                    default:
+                        conversationState.step = 'idle';
+                        stream.markdown(`Let's start over. How can I help you with lineage extraction?`);
+                        break;
                 }
-                
-                if (request.command === 'show-config') {
-                    showConfigurationInChat(stream);
-                    return;
-                }
-                
-                const startTime = Date.now();
-                let result: ProcessingResult;
-                
-                if (request.command === 'extract-folder') {
-                    // Extract lineage from a specific folder
-                    const folder = await vscode.window.showOpenDialog({
-                        canSelectFiles: false,
-                        canSelectFolders: true,
-                        canSelectMany: false,
-                        openLabel: 'Select folder with source files'
-                    });
-                    
-                    if (!folder || folder.length === 0) {
-                        stream.markdown('No folder selected. Operation cancelled.');
-                        return;
-                    }
-                    
-                    result = await processFolder(folder[0]);
-                } else if (request.command === 'extract-all') {
-                    // Extract lineage from all configured folders
-                    result = await processAllMappings();
-                } else {
-                    stream.markdown(`❌ Unknown command: ${request.command}\n\nUse \`@extract-lineage show-help\` to see available commands.`);
-                    return;
-                }
-                
-                const processingTime = (Date.now() - startTime) / 1000; // Convert to seconds
-                showProcessingSummaryInChat(stream, result, processingTime);
             }
         );
 
@@ -101,91 +132,241 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.window.showErrorMessage('Failed to register chat participant. Check the console for details.');
     }
     
-    context.subscriptions.push(generateLineageCommand, showConfigurationCommand);
+    context.subscriptions.push(generateLineageCommand, showConfigurationCommand, validateWorkspaceCommand);
+}
+
+async function handleValidation(stream: vscode.ChatResponseStream) {
+    conversationState.step = 'validating';
+    stream.markdown(`🔍 Validating your workspace setup...`);
+    
+    const validationResults = await validateWorkspaceSetup();
+    conversationState.validationResults = validationResults;
+    
+    // Show validation results
+    if (validationResults.issues.length === 0) {
+        stream.markdown(`✅ Workspace validation successful! Your setup looks perfect.`);
+        stream.markdown(`\n**Workspace Structure:**`);
+        validationResults.folderStructure.forEach(line => {
+            stream.markdown(line);
+        });
+        
+        stream.markdown(`\nWould you like to proceed with extracting lineage from all files? (yes/no)`);
+        conversationState.step = 'ready';
+    } else {
+        stream.markdown(`❌ Some issues were found with your workspace setup:`);
+        validationResults.issues.forEach(issue => {
+            stream.markdown(`• ${issue}`);
+        });
+        
+        stream.markdown(`\nPlease fix these issues and let me know when you're ready to validate again.`);
+        conversationState.step = 'awaiting_setup';
+    }
+}
+
+async function handleExtraction(stream: vscode.ChatResponseStream) {
+    conversationState.step = 'processing';
+    stream.markdown(`🔄 Starting lineage extraction process...`);
+    
+    const startTime = Date.now();
+    const result = await processAllMappings();
+    const processingTime = (Date.now() - startTime) / 1000;
+    
+    showProcessingSummaryInChat(stream, result, processingTime);
+    conversationState.step = 'idle';
+}
+
+async function handleFolderExtraction(stream: vscode.ChatResponseStream) {
+    conversationState.step = 'processing';
+    stream.markdown(`📁 Please select the folder you want to process...`);
+    
+    const folder = await vscode.window.showOpenDialog({
+        canSelectFiles: false,
+        canSelectFolders: true,
+        canSelectMany: false,
+        openLabel: 'Select folder with source files'
+    });
+    
+    if (!folder || folder.length === 0) {
+        stream.markdown('No folder selected. Operation cancelled.');
+        conversationState.step = 'idle';
+        return;
+    }
+    
+    stream.markdown(`🔄 Starting lineage extraction from selected folder...`);
+    
+    const startTime = Date.now();
+    const result = await processFolder(folder[0]);
+    const processingTime = (Date.now() - startTime) / 1000;
+    
+    showProcessingSummaryInChat(stream, result, processingTime);
+    conversationState.step = 'idle';
+}
+
+async function validateWorkspaceSetup(): Promise<ConversationState['validationResults']> {
+    const config = getConfiguration();
+    const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri;
+    
+    if (!workspaceFolder) {
+        return {
+            hasInputFolder: false,
+            hasOutputFolder: false,
+            hasInstructionFiles: false,
+            hasSourceFiles: false,
+            folderStructure: [],
+            issues: ['No workspace folder is open. Please open a workspace first.']
+        };
+    }
+    
+    const issues: string[] = [];
+    const folderStructure: string[] = [];
+    
+    // Check input folder
+    const inputFolderUri = vscode.Uri.joinPath(workspaceFolder, config.inputFolder);
+    let hasInputFolder = false;
+    try {
+        await fs.access(inputFolderUri.fsPath);
+        hasInputFolder = true;
+        folderStructure.push(`📁 ${config.inputFolder}/ (Input folder)`);
+    } catch {
+        issues.push(`Input folder '${config.inputFolder}' does not exist.`);
+    }
+    
+    // Check output folder
+    const outputFolderUri = vscode.Uri.joinPath(workspaceFolder, config.outputFolder);
+    let hasOutputFolder = false;
+    try {
+        await fs.access(outputFolderUri.fsPath);
+        hasOutputFolder = true;
+        folderStructure.push(`📁 ${config.outputFolder}/ (Output folder)`);
+    } catch {
+        // Output folder will be created automatically, so this isn't an error
+        folderStructure.push(`📁 ${config.outputFolder}/ (Output folder - will be created)`);
+    }
+    
+    // Check instruction files
+    let hasInstructionFiles = true;
+    const instructionFiles = new Set(Object.values(config.fileTypeInstructions));
+    instructionFiles.add(config.defaultInstructionFile);
+    
+    for (const file of instructionFiles) {
+        const instructionFileUri = vscode.Uri.joinPath(workspaceFolder, file);
+        try {
+            await fs.access(instructionFileUri.fsPath);
+            folderStructure.push(`📄 ${file} (Instruction file)`);
+        } catch {
+            issues.push(`Instruction file '${file}' does not exist.`);
+            hasInstructionFiles = false;
+        }
+    }
+    
+    // Check for source files in input folder
+    let hasSourceFiles = false;
+    if (hasInputFolder) {
+        try {
+            const files = await vscode.workspace.fs.readDirectory(inputFolderUri);
+            const sourceFiles = files.filter(([name, type]) => 
+                type === vscode.FileType.File && 
+                Object.keys(config.fileTypeInstructions).some(ext => name.endsWith(`.${ext}`))
+            );
+            
+            if (sourceFiles.length > 0) {
+                hasSourceFiles = true;
+                folderStructure.push(`   ├── Contains ${sourceFiles.length} source file(s)`);
+                
+                // Check subfolders
+                const subfolders = files.filter(([name, type]) => type === vscode.FileType.Directory);
+                for (const [name] of subfolders) {
+                    const subfolderUri = vscode.Uri.joinPath(inputFolderUri, name);
+                    const subfolderFiles = await vscode.workspace.fs.readDirectory(subfolderUri);
+                    const subfolderSourceFiles = subfolderFiles.filter(([name, type]) => 
+                        type === vscode.FileType.File && 
+                        Object.keys(config.fileTypeInstructions).some(ext => name.endsWith(`.${ext}`))
+                    );
+                    
+                    if (subfolderSourceFiles.length > 0) {
+                        folderStructure.push(`   ├── 📁 ${name}/ (${subfolderSourceFiles.length} source file(s))`);
+                    }
+                }
+            } else {
+                issues.push(`No source files found in the input folder '${config.inputFolder}'.`);
+            }
+        } catch (error) {
+            issues.push(`Error reading input folder: ${error}`);
+        }
+    }
+    
+    return {
+        hasInputFolder,
+        hasOutputFolder,
+        hasInstructionFiles,
+        hasSourceFiles,
+        folderStructure,
+        issues
+    };
+}
+
+function showValidationResults(validationResults: ConversationState['validationResults']) {
+    if (!validationResults) return;
+    
+    if (validationResults.issues.length === 0) {
+        let message = `✅ Workspace validation successful!\n\n`;
+        message += `Workspace Structure:\n`;
+        validationResults.folderStructure.forEach(line => {
+            message += `${line}\n`;
+        });
+        
+        vscode.window.showInformationMessage(message);
+    } else {
+        let message = `❌ Some issues were found with your workspace setup:\n\n`;
+        validationResults.issues.forEach(issue => {
+            message += `• ${issue}\n`;
+        });
+        
+        vscode.window.showErrorMessage(message);
+    }
 }
 
 function showHelpInformation(stream: vscode.ChatResponseStream) {
     const config = getConfiguration();
     
-    stream.markdown(`# 🚀 Copilot Lineage Deriver - Professional Data Lineage Extraction
+    stream.markdown(`👋 Hello! I'm your Copilot Lineage Deriver assistant. I can help you extract data lineage from various file types.`);
 
-## 📋 Workflow Overview
+    stream.markdown(`## 🚀 Getting Started
 
-The Copilot Lineage Deriver system provides enterprise-grade data lineage extraction from various file types (.xml, .sql, etc.). 
+To begin, I'll guide you through the setup process:
 
-**Processing Flow:**
-1. Source files are organized in subfolders under the parent input folder (${config.inputFolder})
-2. Files are processed ${config.enableBatchProcessing ? `in batches of ${config.batchSize} files` : 'sequentially'}
-3. Each batch is processed with a ${config.delayBetweenRequests}ms delay between requests
-4. Lineage CSV files are generated in the output folder (${config.outputFolder}) with the same structure as input
+1. **Workspace Structure**: 
+   - Create a folder named \`${config.inputFolder}\` in your workspace
+   - Place your source files (.xml, .sql, etc.) in this folder or its subfolders
+   - I'll create the output folder \`${config.outputFolder}\` automatically
 
-## 🗂️ Workspace Requirements
+2. **Instruction Files**:
+   - Create \`instructions.md\` for general guidance
+   - Create \`sql_instructions.md\` for SQL-specific instructions
+   - Add any other instruction files as needed
 
-To use this extension effectively, structure your workspace as follows:
+3. **Configuration**:
+   - You can customize settings in \`.vscode/settings.json\`
 
-\`\`\`
-your-workspace/
-├── .vscode/
-│   └── settings.json          # Workspace configuration
-├── ${config.inputFolder}/     # Parent input folder (configurable)
-│   ├── folder1/               # Subfolder with source files
-│   │   ├── file1.xml
-│   │   └── file2.sql
-│   └── folder2/
-│       └── file3.xml
-├── ${config.outputFolder}/    # Generated output folder (configurable)
-│   ├── folder1/
-│   │   ├── file1.csv
-│   │   └── file2.csv
-│   └── folder2/
-│       └── file3.csv
-├── instructions.md            # Default instructions for XML files
-└── sql_instructions.md       # Instructions for SQL files
-\`\`\`
+## 💬 How to Proceed
 
-## ⚙️ Configuration Options
+I can help you with:
+- Validating your workspace setup
+- Extracting lineage from all files
+- Extracting lineage from a specific folder
+- Showing your current configuration
 
-Configure the extension through:
-1. **User Settings**: Ctrl+Shift+P → "Preferences: Open Settings (JSON)"
-2. **Workspace Settings**: .vscode/settings.json in your workspace
-
-**Available Settings:**
-\`\`\`json
-{
-  "copilotLineageDeriver.inputFolder": "source_data",
-  "copilotLineageDeriver.outputFolder": "lineage_output",
-  "copilotLineageDeriver.batchSize": 5,
-  "copilotLineageDeriver.delayBetweenRequests": 2000,
-  "copilotLineageDeriver.enableBatchProcessing": true,
-  "copilotLineageDeriver.fileTypeInstructions": {
-    "xml": "instructions.md",
-    "sql": "sql_instructions.md"
-  },
-  "copilotLineageDeriver.defaultInstructionFile": "instructions.md"
-}
-\`\`\`
-
-## 💻 Available Commands
-
-**Chat Commands:**
-- \`@extract-lineage extract-all\` - Process all files in the input folder
-- \`@extract-lineage extract-folder\` - Select and process a specific folder
-- \`@extract-lineage show-config\` - Display current configuration
-- \`@extract-lineage show-help\` - Show this help information
-
-**Command Palette:**
-- "Generate Lineage CSV from Files" - Process all files
-- "Show Lineage Deriver Configuration" - Display current settings
-
-## 🚦 Getting Started
-
-1. Set up your workspace structure as shown above
-2. Configure settings in .vscode/settings.json
-3. Add appropriate instruction files for each file type
-4. Run \`@extract-lineage extract-all\` to generate lineage CSVs
-
-*Note: Ensure GitHub Copilot is enabled for AI-powered lineage extraction.*
-`);
+Have you already set up the workspace structure? (yes/no)`);
+    
+    stream.button({
+        command: 'copilot-lineage-deriver.validateWorkspace',
+        title: 'Validate Workspace'
+    });
+    
+    stream.button({
+        command: 'copilot-lineage-deriver.showConfiguration',
+        title: 'Show Configuration'
+    });
 }
 
 function showConfigurationInChat(stream: vscode.ChatResponseStream) {
