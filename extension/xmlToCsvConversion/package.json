@@ -1,7 +1,7 @@
 {
   "name": "copilot-lineage-deriver",
   "displayName": "Copilot Lineage Deriver",
-  "description": "Generate lineage CSV files from XML using Copilot agent mode with @extract-lineage command",
+  "description": "Generate lineage CSV files from various file types using Copilot agent mode",
   "version": "1.0.0",
   "publisher": "your-publisher-name",
   "engines": {
@@ -19,11 +19,11 @@
     "commands": [
       {
         "command": "copilot-lineage-deriver.generateLineage",
-        "title": "Generate Lineage CSV from XML"
+        "title": "Generate Lineage CSV from Files"
       },
       {
         "command": "copilot-lineage-deriver.extractLineageSingle",
-        "title": "Extract Lineage for Current XML File",
+        "title": "Extract Lineage for Current File",
         "category": "Copilot Lineage"
       }
     ],
@@ -33,12 +33,7 @@
         "copilotLineageDeriver.mappingsFolderPath": {
           "type": "string",
           "default": "individual_mappings",
-          "description": "Relative path to the folder containing mapping subfolders with XML files"
-        },
-        "copilotLineageDeriver.instructionsPath": {
-          "type": "string",
-          "default": "instructions.md",
-          "description": "Relative path to the instructions markdown file"
+          "description": "Relative path to the folder containing mapping subfolders with files"
         },
         "copilotLineageDeriver.outputFolder": {
           "type": "string",
@@ -51,7 +46,7 @@
           "description": "Delay between Copilot requests in milliseconds"
         },
         "copilotLineageDeriver.batchSize": {
-          "Type": "number",
+          "type": "number",
           "default": 5,
           "description": "Number of files to process in each batch"
         },
@@ -59,6 +54,14 @@
           "type": "boolean",
           "default": true,
           "description": "Enable batch processing for large numbers of files"
+        },
+        "copilotLineageDeriver.fileTypeInstructions": {
+          "type": "object",
+          "default": {
+            "xml": "instructions.md",
+            "sql": "sql.md"
+          },
+          "description": "Mapping of file extensions to instruction files"
         }
       }
     },
@@ -66,22 +69,21 @@
       {
         "id": "extract-lineage",
         "name": "Extract Lineage",
-        "description": "Extract lineage from XML files using Copilot",
+        "description": "Extract lineage from files using Copilot",
         "fullName": "Lineage Extractor",
         "icon": "$(file-code)",
-        "when": "resourceExtname == .xml",
         "commands": [
           {
             "name": "extract-all",
-            "description": "Extract lineage from all XML files in the workspace"
+            "description": "Extract lineage from all files in the workspace"
           },
           {
             "name": "extract-current",
-            "description": "Extract lineage from the currently active XML file"
+            "description": "Extract lineage from the currently active file"
           },
           {
             "name": "extract-folder",
-            "description": "Extract lineage from XML files in a specific folder"
+            "description": "Extract lineage from files in a specific folder"
           }
         ]
       }
