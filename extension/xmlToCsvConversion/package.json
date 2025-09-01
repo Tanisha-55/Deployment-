@@ -11,8 +11,7 @@
     "Other"
   ],
   "activationEvents": [
-    "onCommand:copilot-lineage-deriver.generateLineage",
-    "onChatParticipant:extract-lineage"
+    "onStartupFinished"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -20,6 +19,16 @@
       {
         "command": "copilot-lineage-deriver.generateLineage",
         "title": "Generate Lineage CSV from Files"
+      },
+      {
+        "command": "copilot-lineage-deriver.showConfiguration",
+        "title": "Show Lineage Deriver Configuration",
+        "category": "Data Lineage"
+      },
+      {
+        "command": "copilot-lineage-deriver.validateWorkspace",
+        "title": "Validate Workspace Setup",
+        "category": "Data Lineage"
       }
     ],
     "configuration": {
@@ -76,6 +85,7 @@
         "description": "Extract lineage from files using Copilot",
         "fullName": "Lineage Extractor",
         "icon": "$(file-code)",
+        "isSticky": true,
         "commands": [
           {
             "name": "extract-all",
@@ -84,6 +94,10 @@
           {
             "name": "extract-folder",
             "description": "Extract lineage from files in a specific folder"
+          },
+          {
+            "name": "validate-workspace",
+            "description": "Validate workspace setup and configuration"
           },
           {
             "name": "show-config",
