@@ -25,7 +25,7 @@
     "configuration": {
       "title": "Copilot Lineage Deriver",
       "properties": {
-        "copilotLineageDeriver.mappingsFolderPath": {
+        "copilotLineageDeriver.inputFolder": {
           "type": "string",
           "default": "individual_mappings",
           "description": "Relative path to the folder containing mapping subfolders with files"
@@ -38,17 +38,21 @@
         "copilotLineageDeriver.delayBetweenRequests": {
           "type": "number",
           "default": 2000,
-          "description": "Delay between Copilot requests in milliseconds"
+          "minimum": 500,
+          "maximum": 10000,
+          "description": "Delay between batch processing requests in milliseconds"
         },
         "copilotLineageDeriver.batchSize": {
           "type": "number",
           "default": 5,
-          "description": "Number of files to process in each batch"
+          "minimum": 1,
+          "maximum": 20,
+          "description": "Number of files to process in each batch (set to 1 for sequential processing)"
         },
         "copilotLineageDeriver.enableBatchProcessing": {
           "type": "boolean",
           "default": true,
-          "description": "Enable batch processing for large numbers of files"
+          "description": "Enable batch processing for improved performance with large file volumes"
         },
         "copilotLineageDeriver.fileTypeInstructions": {
           "type": "object",
@@ -57,6 +61,11 @@
             "sql": "sql.md"
           },
           "description": "Mapping of file extensions to instruction files"
+        },
+        "copilotLineageDeriver.defaultInstructionFile": {
+          "type": "string",
+          "default": "instructions.md",
+          "description": "Default instruction file to use when no specific mapping exists"
         }
       }
     },
@@ -70,11 +79,19 @@
         "commands": [
           {
             "name": "extract-all",
-            "description": "Extract lineage from all files in the workspace"
+            "description": "Extract lineage from all files in the configured input folder"
           },
           {
             "name": "extract-folder",
             "description": "Extract lineage from files in a specific folder"
+          },
+          {
+            "name": "show-config",
+            "description": "Display current configuration settings"
+          },
+          {
+            "name": "show-help",
+            "description": "Display detailed help information"
           }
         ]
       }
