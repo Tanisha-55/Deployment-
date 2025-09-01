@@ -13,9 +13,12 @@ interface ExtensionConfig {
 
 interface ProcessingResult {
     success: boolean;
-    fileCount: number;
+    totalFiles: number;
+    processedFiles: number;
     errorCount: number;
     outputPath: string;
+    folderStats: Record<string, { input: number; output: number; errors: number }>;
+    processingTime: number;
 }
 
 export function activate(context: vscode.ExtensionContext) {
@@ -23,11 +26,27 @@ export function activate(context: vscode.ExtensionContext) {
 
     // Register the main command for generating lineage
     let generateLineageCommand = vscode.commands.registerCommand('copilot-lineage-deriver.generateLineage', async () => {
+        const startTime = Date.now();
         const result = await processAllMappings();
+        const processingTime = (Date.now() - startTime) / 1000; // Convert to seconds
+        
         if (result.success) {
-            vscode.window.showInformationMessage(
-                `Successfully processed ${result.fileCount} files. ${result.errorCount} errors occurred. CSV files saved to ${result.outputPath}`
-            );
+            // Create detailed summary message
+            let summaryMessage = `✅ Lineage extraction completed in ${processingTime.toFixed(2)} seconds.\n\n`;
+            summaryMessage += `📊 Summary:\n`;
+            summaryMessage += `• Total input files: ${result.totalFiles}\n`;
+            summaryMessage += `• Successfully processed: ${result.processedFiles}\n`;
+            summaryMessage += `• Errors: ${result.errorCount}\n`;
+            summaryMessage += `• Accuracy: ${((result.processedFiles / result.totalFiles) * 100).toFixed(2)}%\n\n`;
+            
+            summaryMessage += `📁 Folder-wise breakdown:\n`;
+            for (const [folder, stats] of Object.entries(result.folderStats)) {
+                summaryMessage += `• ${folder}: ${stats.input} input → ${stats.output} output (${stats.errors} errors)\n`;
+            }
+            
+            summaryMessage += `\n📂 Output saved to: ${result.outputPath}`;
+            
+            vscode.window.showInformationMessage(summaryMessage);
         } else {
             vscode.window.showErrorMessage(`Failed to process mappings. ${result.errorCount} errors occurred.`);
         }
@@ -40,6 +59,7 @@ export function activate(context: vscode.ExtensionContext) {
             async (request: vscode.ChatRequest, context: vscode.ChatContext, stream: vscode.ChatResponseStream, token: vscode.CancellationToken) => {
                 console.log('Chat participant invoked with command:', request.command, 'and prompt:', request.prompt);
                 
+                const startTime = Date.now();
                 let result: ProcessingResult;
                 
                 if (request.command === 'extract-folder') {
@@ -62,9 +82,25 @@ export function activate(context: vscode.ExtensionContext) {
                     result = await processAllMappings();
                 }
                 
+                const processingTime = (Date.now() - startTime) / 1000; // Convert to seconds
+                
                 // Return a response for the chat interface
                 if (result.success) {
-                    stream.markdown(`✅ Lineage extraction completed. Processed ${result.fileCount} files with ${result.errorCount} errors. Output saved to ${result.outputPath}`);
+                    let summaryMessage = `✅ Lineage extraction completed in ${processingTime.toFixed(2)} seconds.\n\n`;
+                    summaryMessage += `📊 Summary:\n`;
+                    summaryMessage += `• Total input files: ${result.totalFiles}\n`;
+                    summaryMessage += `• Successfully processed: ${result.processedFiles}\n`;
+                    summaryMessage += `• Errors: ${result.errorCount}\n`;
+                    summaryMessage += `• Accuracy: ${((result.processedFiles / result.totalFiles) * 100).toFixed(2)}%\n\n`;
+                    
+                    summaryMessage += `📁 Folder-wise breakdown:\n`;
+                    for (const [folder, stats] of Object.entries(result.folderStats)) {
+                        summaryMessage += `• ${folder}: ${stats.input} input → ${stats.output} output (${stats.errors} errors)\n`;
+                    }
+                    
+                    summaryMessage += `\n📂 Output saved to: ${result.outputPath}`;
+                    
+                    stream.markdown(summaryMessage);
                     
                     // Add follow-up options
                     if (vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0) {
@@ -112,7 +148,15 @@ async function processAllMappings(): Promise<ProcessingResult> {
     // Check if workspace is open
     if (!vscode.workspace.workspaceFolders) {
         vscode.window.showErrorMessage('No workspace folder open.');
-        return { success: false, fileCount: 0, errorCount: 1, outputPath: '' };
+        return { 
+            success: false, 
+            totalFiles: 0, 
+            processedFiles: 0, 
+            errorCount: 1, 
+            outputPath: '', 
+            folderStats: {}, 
+            processingTime: 0 
+        };
     }
 
     const workspaceFolder = vscode.workspace.workspaceFolders[0].uri;
@@ -136,11 +180,34 @@ async function processAllMappings(): Promise<ProcessingResult> {
 
         if (subfolderUris.length === 0) {
             vscode.window.showInformationMessage('No subfolders found in the mappings folder.');
-            return { success: false, fileCount: 0, errorCount: 0, outputPath: '' };
+            return { 
+                success: false, 
+                totalFiles: 0, 
+                processedFiles: 0, 
+                errorCount: 0, 
+                outputPath: '', 
+                folderStats: {}, 
+                processingTime: 0 
+            };
         }
 
-        let totalProcessed = 0;
+        let totalFiles = 0;
+        let processedFiles = 0;
         let errorCount = 0;
+        const folderStats: Record<string, { input: number; output: number; errors: number }> = {};
+
+        // First, count total files for progress reporting
+        for (const subfolderUri of subfolderUris) {
+            const subfolderName = path.basename(subfolderUri.fsPath);
+            const files = await vscode.workspace.fs.readDirectory(subfolderUri);
+            const fileCount = files.filter(([name, type]) => 
+                type === vscode.FileType.File && 
+                Object.keys(extensionConfig.fileTypeInstructions).some(ext => name.endsWith(`.${ext}`))
+            ).length;
+            
+            totalFiles += fileCount;
+            folderStats[subfolderName] = { input: fileCount, output: 0, errors: 0 };
+        }
 
         // Process files with progress indicator
         await vscode.window.withProgress({
@@ -148,19 +215,6 @@ async function processAllMappings(): Promise<ProcessingResult> {
             title: "Generating Lineage CSV Files with Copilot",
             cancellable: true
         }, async (progress, token) => {
-            let totalFiles = 0;
-
-            // First, count total files for progress reporting
-            for (const subfolderUri of subfolderUris) {
-                if (token.isCancellationRequested) break;
-                
-                const files = await vscode.workspace.fs.readDirectory(subfolderUri);
-                totalFiles += files.filter(([name, type]) => 
-                    type === vscode.FileType.File && 
-                    Object.keys(extensionConfig.fileTypeInstructions).some(ext => name.endsWith(`.${ext}`))
-                ).length;
-            }
-
             // Process each subfolder
             for (const subfolderUri of subfolderUris) {
                 if (token.isCancellationRequested) break;
@@ -204,16 +258,18 @@ async function processAllMappings(): Promise<ProcessingResult> {
 
                         for (const result of batchResults) {
                             if (result.status === 'fulfilled') {
-                                totalProcessed++;
+                                processedFiles++;
+                                folderStats[subfolderName].output++;
                             } else {
                                 errorCount++;
+                                folderStats[subfolderName].errors++;
                                 console.error('Error processing file:', result.reason);
                             }
                         }
 
                         progress.report({ 
                             increment: (batch.length * 100 / totalFiles), 
-                            message: `Processed ${totalProcessed}/${totalFiles} files (${errorCount} errors)` 
+                            message: `Processed ${processedFiles}/${totalFiles} files (${errorCount} errors)` 
                         });
 
                         // Add delay between batches
@@ -232,17 +288,19 @@ async function processAllMappings(): Promise<ProcessingResult> {
                             });
                             
                             await processFile(fileUri, outputSubfolderUri, extensionConfig.fileTypeInstructions);
-                            totalProcessed++;
+                            processedFiles++;
+                            folderStats[subfolderName].output++;
                             
                             progress.report({ 
                                 increment: (100 / totalFiles), 
-                                message: `Processed ${totalProcessed}/${totalFiles} files (${errorCount} errors)` 
+                                message: `Processed ${processedFiles}/${totalFiles} files (${errorCount} errors)` 
                             });
                             
                             // Add delay between requests
                             await setTimeout(extensionConfig.delayBetweenRequests);
                         } catch (error) {
                             errorCount++;
+                            folderStats[subfolderName].errors++;
                             vscode.window.showErrorMessage(`Error processing ${path.basename(fileUri.fsPath)}: ${error}`);
                         }
                     }
@@ -256,14 +314,25 @@ async function processAllMappings(): Promise<ProcessingResult> {
 
         return { 
             success: errorCount === 0, 
-            fileCount: totalProcessed, 
+            totalFiles,
+            processedFiles,
             errorCount, 
-            outputPath: extensionConfig.outputFolder 
+            outputPath: extensionConfig.outputFolder,
+            folderStats,
+            processingTime: 0 // This will be calculated by the caller
         };
 
     } catch (error) {
         vscode.window.showErrorMessage(`Error: ${error}`);
-        return { success: false, fileCount: 0, errorCount: 1, outputPath: '' };
+        return { 
+            success: false, 
+            totalFiles: 0, 
+            processedFiles: 0, 
+            errorCount: 1, 
+            outputPath: '', 
+            folderStats: {}, 
+            processingTime: 0 
+        };
     }
 }
 
@@ -282,7 +351,15 @@ async function processFolder(folderUri: vscode.Uri): Promise<ProcessingResult> {
     // Check if workspace is open
     if (!vscode.workspace.workspaceFolders) {
         vscode.window.showErrorMessage('No workspace folder open.');
-        return { success: false, fileCount: 0, errorCount: 1, outputPath: '' };
+        return { 
+            success: false, 
+            totalFiles: 0, 
+            processedFiles: 0, 
+            errorCount: 1, 
+            outputPath: '', 
+            folderStats: {}, 
+            processingTime: 0 
+        };
     }
 
     const workspaceFolder = vscode.workspace.workspaceFolders[0].uri;
@@ -308,7 +385,15 @@ async function processFolder(folderUri: vscode.Uri): Promise<ProcessingResult> {
 
         if (fileUris.length === 0) {
             vscode.window.showInformationMessage('No supported files found in the selected folder.');
-            return { success: false, fileCount: 0, errorCount: 0, outputPath: '' };
+            return { 
+                success: false, 
+                totalFiles: 0, 
+                processedFiles: 0, 
+                errorCount: 0, 
+                outputPath: '', 
+                folderStats: {}, 
+                processingTime: 0 
+            };
         }
 
         // Create output subfolder using the folder name
@@ -320,8 +405,11 @@ async function processFolder(folderUri: vscode.Uri): Promise<ProcessingResult> {
             // Directory might already exist
         }
 
-        let totalProcessed = 0;
+        let processedFiles = 0;
         let errorCount = 0;
+        const folderStats: Record<string, { input: number; output: number; errors: number }> = {
+            [folderName]: { input: fileUris.length, output: 0, errors: 0 }
+        };
 
         // Process files with progress indicator
         await vscode.window.withProgress({
@@ -339,17 +427,19 @@ async function processFolder(folderUri: vscode.Uri): Promise<ProcessingResult> {
                     });
                     
                     await processFile(fileUri, outputSubfolderUri, extensionConfig.fileTypeInstructions);
-                    totalProcessed++;
+                    processedFiles++;
+                    folderStats[folderName].output++;
                     
                     progress.report({ 
                         increment: (100 / fileUris.length), 
-                        message: `Processed ${totalProcessed}/${fileUris.length} files (${errorCount} errors)` 
+                        message: `Processed ${processedFiles}/${fileUris.length} files (${errorCount} errors)` 
                     });
                     
                     // Add delay between requests
                     await setTimeout(extensionConfig.delayBetweenRequests);
                 } catch (error) {
                     errorCount++;
+                    folderStats[folderName].errors++;
                     vscode.window.showErrorMessage(`Error processing ${path.basename(fileUri.fsPath)}: ${error}`);
                 }
             }
@@ -361,14 +451,25 @@ async function processFolder(folderUri: vscode.Uri): Promise<ProcessingResult> {
 
         return { 
             success: errorCount === 0, 
-            fileCount: totalProcessed, 
+            totalFiles: fileUris.length,
+            processedFiles,
             errorCount, 
-            outputPath: path.join(extensionConfig.outputFolder, folderName) 
+            outputPath: path.join(extensionConfig.outputFolder, folderName),
+            folderStats,
+            processingTime: 0 // This will be calculated by the caller
         };
 
     } catch (error) {
         vscode.window.showErrorMessage(`Error: ${error}`);
-        return { success: false, fileCount: 0, errorCount: 1, outputPath: '' };
+        return { 
+            success: false, 
+            totalFiles: 0, 
+            processedFiles: 0, 
+            errorCount: 1, 
+            outputPath: '', 
+            folderStats: {}, 
+            processingTime: 0 
+        };
     }
 }
 
