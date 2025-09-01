@@ -143,7 +143,7 @@ async function handleValidation(stream: vscode.ChatResponseStream) {
     conversationState.validationResults = validationResults;
     
     // Show validation results
-    if (validationResults.issues.length === 0) {
+    if (validationResults && validationResults.issues.length === 0) {
         stream.markdown(`✅ Workspace validation successful! Your setup looks perfect.`);
         stream.markdown(`\n**Workspace Structure:**`);
         validationResults.folderStructure.forEach(line => {
@@ -152,7 +152,7 @@ async function handleValidation(stream: vscode.ChatResponseStream) {
         
         stream.markdown(`\nWould you like to proceed with extracting lineage from all files? (yes/no)`);
         conversationState.step = 'ready';
-    } else {
+    } else if (validationResults) {
         stream.markdown(`❌ Some issues were found with your workspace setup:`);
         validationResults.issues.forEach(issue => {
             stream.markdown(`• ${issue}`);
@@ -160,6 +160,9 @@ async function handleValidation(stream: vscode.ChatResponseStream) {
         
         stream.markdown(`\nPlease fix these issues and let me know when you're ready to validate again.`);
         conversationState.step = 'awaiting_setup';
+    } else {
+        stream.markdown(`❌ Failed to validate workspace setup. Please check the console for errors.`);
+        conversationState.step = 'idle';
     }
 }
 
@@ -224,9 +227,13 @@ async function validateWorkspaceSetup(): Promise<ConversationState['validationRe
     const inputFolderUri = vscode.Uri.joinPath(workspaceFolder, config.inputFolder);
     let hasInputFolder = false;
     try {
-        await fs.access(inputFolderUri.fsPath);
-        hasInputFolder = true;
-        folderStructure.push(`📁 ${config.inputFolder}/ (Input folder)`);
+        const stat = await vscode.workspace.fs.stat(inputFolderUri);
+        if (stat.type === vscode.FileType.Directory) {
+            hasInputFolder = true;
+            folderStructure.push(`📁 ${config.inputFolder}/ (Input folder)`);
+        } else {
+            issues.push(`'${config.inputFolder}' exists but is not a directory.`);
+        }
     } catch {
         issues.push(`Input folder '${config.inputFolder}' does not exist.`);
     }
@@ -235,9 +242,13 @@ async function validateWorkspaceSetup(): Promise<ConversationState['validationRe
     const outputFolderUri = vscode.Uri.joinPath(workspaceFolder, config.outputFolder);
     let hasOutputFolder = false;
     try {
-        await fs.access(outputFolderUri.fsPath);
-        hasOutputFolder = true;
-        folderStructure.push(`📁 ${config.outputFolder}/ (Output folder)`);
+        const stat = await vscode.workspace.fs.stat(outputFolderUri);
+        if (stat.type === vscode.FileType.Directory) {
+            hasOutputFolder = true;
+            folderStructure.push(`📁 ${config.outputFolder}/ (Output folder)`);
+        } else {
+            issues.push(`'${config.outputFolder}' exists but is not a directory.`);
+        }
     } catch {
         // Output folder will be created automatically, so this isn't an error
         folderStructure.push(`📁 ${config.outputFolder}/ (Output folder - will be created)`);
@@ -251,8 +262,13 @@ async function validateWorkspaceSetup(): Promise<ConversationState['validationRe
     for (const file of instructionFiles) {
         const instructionFileUri = vscode.Uri.joinPath(workspaceFolder, file);
         try {
-            await fs.access(instructionFileUri.fsPath);
-            folderStructure.push(`📄 ${file} (Instruction file)`);
+            const stat = await vscode.workspace.fs.stat(instructionFileUri);
+            if (stat.type === vscode.FileType.File) {
+                folderStructure.push(`📄 ${file} (Instruction file)`);
+            } else {
+                issues.push(`'${file}' exists but is not a file.`);
+                hasInstructionFiles = false;
+            }
         } catch {
             issues.push(`Instruction file '${file}' does not exist.`);
             hasInstructionFiles = false;
@@ -306,7 +322,10 @@ async function validateWorkspaceSetup(): Promise<ConversationState['validationRe
 }
 
 function showValidationResults(validationResults: ConversationState['validationResults']) {
-    if (!validationResults) return;
+    if (!validationResults) {
+        vscode.window.showErrorMessage('Validation failed: No results returned.');
+        return;
+    }
     
     if (validationResults.issues.length === 0) {
         let message = `✅ Workspace validation successful!\n\n`;
@@ -369,24 +388,17 @@ Have you already set up the workspace structure? (yes/no)`);
     });
 }
 
-function showConfigurationInChat(stream: vscode.ChatResponseStream) {
-    const config = getConfiguration();
-    
-    stream.markdown(`# ⚙️ Current Configuration
-
-**Input Folder:** \`${config.inputFolder}\`
-**Output Folder:** \`${config.outputFolder}\`
-**Batch Size:** ${config.batchSize} files
-**Request Delay:** ${config.delayBetweenRequests}ms
-**Batch Processing:** ${config.enableBatchProcessing ? 'Enabled' : 'Disabled'}
-**Default Instructions:** \`${config.defaultInstructionFile}\`
-
-**File Type Mappings:**
-${Object.entries(config.fileTypeInstructions)
-    .map(([ext, file]) => `- \`.${ext}\` → \`${file}\``)
-    .join('\n')}
-
-*To modify these settings, edit your .vscode/settings.json file or user settings.*`);
+function getConfiguration(): ExtensionConfig {
+    const config = vscode.workspace.getConfiguration('copilotLineageDeriver');
+    return {
+        inputFolder: config.get('inputFolder', 'source_data'),
+        outputFolder: config.get('outputFolder', 'lineage_output'),
+        delayBetweenRequests: config.get('delayBetweenRequests', 2000),
+        batchSize: config.get('batchSize', 5),
+        enableBatchProcessing: config.get('enableBatchProcessing', true),
+        fileTypeInstructions: config.get('fileTypeInstructions', { xml: 'instructions.md', sql: 'sql_instructions.md' }),
+        defaultInstructionFile: config.get('defaultInstructionFile', 'instructions.md')
+    };
 }
 
 function showCurrentConfiguration() {
@@ -473,7 +485,6 @@ function showProcessingSummaryInChat(stream: vscode.ChatResponseStream, result: 
         stream.markdown(`❌ Lineage extraction failed. ${result.errorCount} errors occurred.`);
     }
 }
-
 function getConfiguration(): ExtensionConfig {
     const config = vscode.workspace.getConfiguration('copilotLineageDeriver');
     return {
