@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import { setTimeout } from 'timers/promises';
 
+
 interface ExtensionConfig {
     mappingsFolderPath: string;
     outputFolder: string;
@@ -21,8 +22,12 @@ interface ProcessingResult {
     processingTime: number;
 }
 
+// Global variable to track if the extension is activated
+let isExtensionActive = false;
+
 export function activate(context: vscode.ExtensionContext) {
     console.log('Copilot Lineage Deriver extension is now active!');
+    isExtensionActive = true;
 
     // Register the main command for generating lineage
     let generateLineageCommand = vscode.commands.registerCommand('copilot-lineage-deriver.generateLineage', async () => {
@@ -59,6 +64,12 @@ export function activate(context: vscode.ExtensionContext) {
             async (request: vscode.ChatRequest, context: vscode.ChatContext, stream: vscode.ChatResponseStream, token: vscode.CancellationToken) => {
                 console.log('Chat participant invoked with command:', request.command, 'and prompt:', request.prompt);
                 
+                // Show a welcome message if no command is specified
+                if (!request.command) {
+                    stream.markdown(`👋 Welcome to the Lineage Extractor!\n\nAvailable commands:\n• \`@extract-lineage extract-all\` - Process all files\n• \`@extract-lineage extract-folder\` - Process files in a specific folder`);
+                    return;
+                }
+                
                 const startTime = Date.now();
                 let result: ProcessingResult;
                 
@@ -77,9 +88,12 @@ export function activate(context: vscode.ExtensionContext) {
                     }
                     
                     result = await processFolder(folder[0]);
-                } else {
+                } else if (request.command === 'extract-all') {
                     // Default: extract all
                     result = await processAllMappings();
+                } else {
+                    stream.markdown(`❌ Unknown command: ${request.command}\n\nAvailable commands:\n• \`extract-all\` - Process all files\n• \`extract-folder\` - Process files in a specific folder`);
+                    return;
                 }
                 
                 const processingTime = (Date.now() - startTime) / 1000; // Convert to seconds
