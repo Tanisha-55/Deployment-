@@ -1,0 +1,62 @@
+import React from 'react';
+import { Box, Typography, Paper, styled } from '@mui/material';
+import { AutoAwesome, Psychology } from '@mui/icons-material';
+
+const StyledAIGen = styled(Paper)(({ theme }) => ({
+  display: 'flex',
+  alignItems: 'center',
+  padding: theme.spacing(1, 2),
+  backgroundColor: theme.palette.primary.light,
+  color: theme.palette.primary.contrastText,
+  borderRadius: '20px',
+  marginTop: theme.spacing(1),
+  marginBottom: theme.spacing(2),
+  width: 'fit-content',
+  boxShadow: theme.shadows[2],
+}));
+
+const AIIconWrapper = styled(Box)(({ theme }) => ({
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  marginRight: theme.spacing(1),
+  backgroundColor: theme.palette.primary.main,
+  borderRadius: '50%',
+  width: '28px',
+  height: '28px',
+}));
+
+const ResourceSection = () => {
+  return (
+    <Box sx={{ p: 3 }}>
+      <Typography variant="h5" component="h2" gutterBottom sx={{ fontWeight: 'bold' }}>
+        RESOURCE NAME: DO_ACCOUNT
+      </Typography>
+      
+      <StyledAIGen>
+        <AIIconWrapper>
+          <Psychology sx={{ fontSize: '18px' }} />
+        </AIIconWrapper>
+        <Typography variant="body1" sx={{ fontWeight: 'medium' }}>
+          AI-Gen
+        </Typography>
+      </StyledAIGen>
+      
+      <Typography variant="body1" paragraph sx={{ 
+        backgroundColor: '#f8f9fa', 
+        padding: 2, 
+        borderRadius: 1,
+        borderLeft: '4px solid',
+        borderLeftColor: 'primary.main'
+      }}>
+        The 'do_account' table in the 'restr_wmts' database stores detailed information about accounts, 
+        including their activation status details. It records whether an account is active, the account's 
+        birthday and the account's corporate birthday date. Additionally, it tracks the accretion description, 
+        class, and class code. This table serves the business purpose of managing and categorizing accounts, 
+        facilitating operations that require classification data.
+      </Typography>
+    </Box>
+  );
+};
+
+export default ResourceSection;
