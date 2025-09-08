@@ -1,0 +1,59 @@
+import React from 'react';
+import { Box, Typography, Paper, Chip, styled } from '@mui/material';
+import { AutoAwesome } from '@mui/icons-material';
+
+const AIGenBadge = ({ icon, label }) => {
+  return (
+    <Chip
+      icon={icon}
+      label={label}
+      sx={{
+        backgroundColor: 'primary.light',
+        color: 'primary.contrastText',
+        padding: '8px 4px',
+        mt: 1,
+        mb: 2,
+        '& .MuiChip-icon': {
+          color: 'primary.contrastText',
+          fontSize: '20px'
+        }
+      }}
+    />
+  );
+};
+
+const ResourceSection = () => {
+  return (
+    <Box sx={{ p: 3 }}>
+      <Typography variant="h5" component="h2" gutterBottom sx={{ fontWeight: 'bold' }}>
+        RESOURCE NAME: DO_ACCOUNT
+      </Typography>
+      
+      <AIGenBadge 
+        icon={<AutoAwesome />} 
+        label="AI-Gen" 
+      />
+      
+      <Paper 
+        elevation={0} 
+        sx={{ 
+          backgroundColor: 'grey.50', 
+          p: 2, 
+          borderRadius: 1,
+          borderLeft: '4px solid',
+          borderLeftColor: 'primary.main'
+        }}
+      >
+        <Typography variant="body1">
+          The 'do_account' table in the 'restr_wmts' database stores detailed information about accounts, 
+          including their activation status details. It records whether an account is active, the account's 
+          birthday and the account's corporate birthday date. Additionally, it tracks the accretion description, 
+          class, and class code. This table serves the business purpose of managing and categorizing accounts, 
+          facilitating operations that require classification data.
+        </Typography>
+      </Paper>
+    </Box>
+  );
+};
+
+export default ResourceSection;
