@@ -1,0 +1,108 @@
+import React from 'react';
+import { Box, Tooltip, Zoom, styled } from '@mui/material';
+import { AutoAwesome, Psychology, SmartToy } from '@mui/icons-material';
+
+// Styled component with pulsing animation
+const PulseIcon = styled(Box)(({ theme }) => ({
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  borderRadius: '50%',
+  padding: theme.spacing(1),
+  backgroundColor: theme.palette.primary.light,
+  color: theme.palette.primary.contrastText,
+  boxShadow: theme.shadows[3],
+  animation: 'pulse 2s infinite',
+  cursor: 'pointer',
+  transition: 'all 0.3s ease',
+  '&:hover': {
+    transform: 'scale(1.1)',
+    backgroundColor: theme.palette.primary.main,
+  },
+  '@keyframes pulse': {
+    '0%': {
+      boxShadow: `0 0 0 0 ${theme.palette.primary.light}80`,
+    },
+    '70%': {
+      boxShadow: `0 0 0 10px ${theme.palette.primary.light}00`,
+    },
+    '100%': {
+      boxShadow: `0 0 0 0 ${theme.palette.primary.light}00`,
+    },
+  },
+}));
+
+// Alternative version with gradient background
+const GradientIcon = styled(Box)(({ theme }) => ({
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  borderRadius: '16px',
+  padding: theme.spacing(1.5),
+  background: 'linear-gradient(135deg, #6e8efb, #a777e3)',
+  color: 'white',
+  boxShadow: theme.shadows[4],
+  cursor: 'pointer',
+  transition: 'all 0.3s ease',
+  '&:hover': {
+    transform: 'translateY(-2px)',
+    boxShadow: theme.shadows[8],
+  },
+}));
+
+// Simple icon version
+const SimpleAIIcon = styled(Box)(({ theme }) => ({
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  borderRadius: '50%',
+  padding: theme.spacing(1),
+  backgroundColor: theme.palette.grey[100],
+  color: theme.palette.primary.main,
+  border: `2px solid ${theme.palette.primary.main}`,
+  cursor: 'pointer',
+}));
+
+const ResourceSection = () => {
+  return (
+    <Box sx={{ display: 'flex', gap: 2, p: 3, flexWrap: 'wrap' }}>
+      {/* Option 1: Pulsing icon with tooltip */}
+      <Tooltip 
+        title="AI-Generated Content" 
+        placement="top" 
+        TransitionComponent={Zoom}
+        arrow
+      >
+        <PulseIcon>
+          <Psychology sx={{ fontSize: 28 }} />
+        </PulseIcon>
+      </Tooltip>
+
+      {/* Option 2: Gradient icon with tooltip */}
+      <Tooltip 
+        title="AI-Generated Content" 
+        placement="top" 
+        TransitionComponent={Zoom}
+        arrow
+      >
+        <GradientIcon>
+          <AutoAwesome sx={{ fontSize: 28 }} />
+        </GradientIcon>
+      </Tooltip>
+
+      {/* Option 3: Simple icon with tooltip */}
+      <Tooltip 
+        title="AI-Generated Content" 
+        placement="top" 
+        TransitionComponent={Zoom}
+        arrow
+      >
+        <SimpleAIIcon>
+          <SmartToy sx={{ fontSize: 28 }} />
+        </SimpleAIIcon>
+      </Tooltip>
+    </Box>
+  );
+};
+
+export default ResourceSection;
