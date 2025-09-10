@@ -1,0 +1,10 @@
+{
+  "copilotDb2.connection": {
+    "database": "your_db",
+    "hostname": "your_host",
+    "port": "50000",
+    "username": "your_user",
+    "password": "your_password",
+    "schema": "DICT"
+  }
+}
