@@ -1,0 +1,75 @@
+{
+  "name": "copilot-db2-extension",
+  "displayName": "Copilot DB2 Extension",
+  "description": "DB2 database queries powered by GitHub Copilot",
+  "version": "0.0.1",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other",
+    "AI"
+  ],
+  "activationEvents": [
+    "onCommand:copilot-db2.runQuery",
+    "onLanguage:markdown"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "copilot-db2.runQuery",
+        "title": "Run DB2 Query from Markdown",
+        "category": "Copilot DB2"
+      }
+    ],
+    "configuration": {
+      "title": "Copilot DB2",
+      "properties": {
+        "copilotDb2.connection.database": {
+          "type": "string",
+          "default": "",
+          "description": "DB2 database name"
+        },
+        "copilotDb2.connection.hostname": {
+          "type": "string",
+          "default": "",
+          "description": "DB2 hostname"
+        },
+        "copilotDb2.connection.port": {
+          "type": "number",
+          "default": 50000,
+          "description": "DB2 port"
+        },
+        "copilotDb2.connection.username": {
+          "type": "string",
+          "default": "",
+          "description": "DB2 username"
+        },
+        "copilotDb2.connection.password": {
+          "type": "string",
+          "default": "",
+          "description": "DB2 password"
+        },
+        "copilotDb2.connection.schema": {
+          "type": "string",
+          "default": "DICT",
+          "description": "Default DB2 schema"
+        }
+      }
+    }
+  },
+  "dependencies": {
+    "ibm_db": "^3.1.0"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.85.0",
+    "@types/node": "^16.18.0",
+    "typescript": "^4.9.0"
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  }
+}
