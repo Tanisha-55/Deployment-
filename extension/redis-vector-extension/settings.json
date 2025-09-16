@@ -1,0 +1,10 @@
+{
+  "redisVector.host": "nfrtredis-dev-12030.ms.com",
+  "redisVector.port": 12030,
+  "redisVector.caCertPath": "M:\\dist\\sec\\PROJ\\pki\\prod\\truststores\\GenPop-PROD\\combined\\pem\\bundle.pem",
+  "redisVector.clientCertPath": "/var/tmp/kumarita/src/cert/mycert.cer",
+  "redisVector.clientKeyPath": "/var/tmp/kumarita/src/cert/mykey.key",
+  "redisVector.dbName": "NYTD_LC_SYSDICT",
+  "redisVector.sshHost": "ivapp1231650.devin3.ms.com",
+  "redisVector.sshUser": "kumarita"
+}
