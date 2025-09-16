@@ -10,6 +10,7 @@ export function activate(context: vscode.ExtensionContext) {
     let redisClient: RedisClientType | null = null;
     let sshProcess: child_process.ChildProcess | null = null;
     const outputChannel = vscode.window.createOutputChannel('Redis Vector DB');
+    let cancelExport = false;
 
     // Ensure we're not ignoring certificate validation
     if (process.env.NODE_TLS_REJECT_UNAUTHORIZED === '0') {
@@ -153,7 +154,7 @@ export function activate(context: vscode.ExtensionContext) {
         }
     });
 
-    const fetchDataCommand = vscode.commands.registerCommand('redisVector.fetchData', async () => {
+   const fetchDataCommand = vscode.commands.registerCommand('redisVector.fetchData', async () => {
         if (!redisClient) {
             vscode.window.showErrorMessage('Not connected to Redis. Please connect first.');
             return;
@@ -210,7 +211,7 @@ export function activate(context: vscode.ExtensionContext) {
             writeStream.write('"keys": [\n');
 
             // Use SCAN to iterate through keys in batches (more efficient than KEYS)
-            let cursor = 0;
+            let cursor = '0'; // SCAN cursor starts at '0'
             let exportedCount = 0;
             const batchSize = 1000; // Process keys in batches
 
@@ -233,10 +234,13 @@ export function activate(context: vscode.ExtensionContext) {
                     }
 
                     // Get a batch of keys using SCAN
-                    const result = await redisClient.scan(cursor, { COUNT: batchSize });
-                    cursor = parseInt(result.cursor);
-                    const keys = result.keys;
-
+                    // Redis v4.x returns [nextCursor, keys]
+                    const [nextCursor, keys] = await redisClient.scan(cursor, {
+                        COUNT: batchSize
+                    });
+                    
+                    cursor = nextCursor;
+                    
                     if (keys.length === 0) {
                         continue;
                     }
@@ -246,13 +250,15 @@ export function activate(context: vscode.ExtensionContext) {
                     for (const key of keys) {
                         pipeline.type(key);
                     }
-                    const types = await pipeline.exec();
-
+                    
+                    // Execute the pipeline and get types
+                    const typeResults = await pipeline.exec();
+                    
                     // Use another pipeline to get values based on types
                     const valuePipeline = redisClient.multi();
                     for (let i = 0; i < keys.length; i++) {
                         const key = keys[i];
-                        const type = types[i] as string;
+                        const type = typeResults[i] as string;
                         
                         switch (type) {
                             case 'string':
@@ -262,19 +268,21 @@ export function activate(context: vscode.ExtensionContext) {
                                 valuePipeline.hGetAll(key);
                                 break;
                             case 'list':
-                                valuePipeline.lRange(key, 0, -1);
+                                valuePipeline.lRange(key, 0, 100); // Limit to first 100 items for large lists
                                 break;
                             case 'set':
                                 valuePipeline.sMembers(key);
                                 break;
                             case 'zset':
-                                valuePipeline.zRangeWithScores(key, 0, -1);
+                                valuePipeline.zRangeWithScores(key, 0, 100); // Limit to first 100 items
                                 break;
                             default:
                                 valuePipeline.get(key); // Fallback
                         }
                     }
-                    const values = await valuePipeline.exec();
+                    
+                    // Execute the value pipeline
+                    const valueResults = await valuePipeline.exec();
 
                     // Write the batch to file
                     for (let i = 0; i < keys.length; i++) {
@@ -283,8 +291,8 @@ export function activate(context: vscode.ExtensionContext) {
                         }
 
                         const key = keys[i];
-                        const type = types[i] as string;
-                        const value = values[i];
+                        const type = typeResults[i] as string;
+                        const value = valueResults[i];
 
                         const entry = {
                             key,
@@ -297,8 +305,8 @@ export function activate(context: vscode.ExtensionContext) {
 
                         exportedCount++;
                         
-                        // Add comma unless it's the last entry
-                        if (exportedCount < totalKeys) {
+                        // Add comma unless it's the last entry or we're at the end
+                        if (exportedCount < totalKeys && cursor !== '0') {
                             writeStream.write(',\n');
                         } else {
                             writeStream.write('\n');
@@ -316,7 +324,7 @@ export function activate(context: vscode.ExtensionContext) {
                         }
                     }
 
-                } while (cursor !== 0 && !cancelExport);
+                } while (cursor !== '0' && !cancelExport);
 
                 // Final progress update
                 progress.report({ message: `Finishing export...`, increment: 100 });
