@@ -159,8 +159,28 @@ export function activate(context: vscode.ExtensionContext) {
             return;
         }
 
+        // Check if user wants to cancel before starting
+        const cancelButton = 'Cancel';
+        const response = await vscode.window.showWarningMessage(
+            'Exporting large datasets may take time. Do you want to continue?',
+            'Continue',
+            cancelButton
+        );
+
+        if (response === cancelButton) {
+            return;
+        }
+
         outputChannel.show();
-        outputChannel.appendLine('Fetching data from Redis...');
+        outputChannel.appendLine('Starting data export from Redis...');
+        
+        // Add cancel command
+        const cancelToken = vscode.commands.registerCommand('redisVector.cancelExport', () => {
+            cancelExport = true;
+            outputChannel.appendLine('Export cancelled by user.');
+        });
+        
+        context.subscriptions.push(cancelToken);
 
         try {
             // Get workspace folder
@@ -173,80 +193,163 @@ export function activate(context: vscode.ExtensionContext) {
             const workspaceRoot = workspaceFolders[0].uri.fsPath;
             const exportPath = path.join(workspaceRoot, 'redis_data_export.json');
             
-            // Get all keys
-            const keys = await redisClient.keys('*');
-            outputChannel.appendLine(`Found ${keys.length} keys`);
+            // Get total key count for progress reporting
+            outputChannel.appendLine('Counting keys...');
+            const totalKeys = await redisClient.dbSize();
+            outputChannel.appendLine(`Found approximately ${totalKeys} keys to export`);
             
-            // Prepare data for export
-            const exportData = {
-                timestamp: new Date().toISOString(),
-                totalKeys: keys.length,
-                keys: [] as any[]
+            if (totalKeys > 100000) {
+                vscode.window.showWarningMessage(`Large dataset detected (${totalKeys} keys). Export may take several minutes.`);
+            }
+
+            // Create a write stream for efficient file writing
+            const writeStream = fs.createWriteStream(exportPath);
+            writeStream.write('{\n');
+            writeStream.write('"timestamp": "' + new Date().toISOString() + '",\n');
+            writeStream.write('"totalKeys": ' + totalKeys + ',\n');
+            writeStream.write('"keys": [\n');
+
+            // Use SCAN to iterate through keys in batches (more efficient than KEYS)
+            let cursor = 0;
+            let exportedCount = 0;
+            const batchSize = 1000; // Process keys in batches
+
+            // Create progress indicator
+            const progressOptions = {
+                location: vscode.ProgressLocation.Notification,
+                title: "Exporting Redis Data",
+                cancellable: true
             };
-            
-            // Display first 10 keys as a sample and prepare export data
-            for (let i = 0; i < keys.length; i++) {
-                const key = keys[i];
-                const type = await redisClient.type(key);
-                
-                let value: any = '';
-                switch (type) {
-                    case 'string':
-                        value = await redisClient.get(key) || '';
-                        break;
-                    case 'hash':
-                        value = await redisClient.hGetAll(key);
-                        break;
-                    case 'list':
-                        value = await redisClient.lRange(key, 0, -1);
-                        break;
-                    case 'set':
-                        value = await redisClient.sMembers(key);
-                        break;
-                    case 'zset':
-                        value = await redisClient.zRangeWithScores(key, 0, -1);
-                        break;
-                    default:
-                        value = `[Type: ${type}]`;
-                }
-                
-                // Add to export data
-                exportData.keys.push({
-                    key,
-                    type,
-                    value
+
+            await vscode.window.withProgress(progressOptions, async (progress, token) => {
+                token.onCancellationRequested(() => {
+                    cancelExport = true;
+                    outputChannel.appendLine('Export cancelled by user.');
                 });
-                
-                // Display first 10 keys in output channel
-                if (i < 10) {
-                    const valuePreview = typeof value === 'string' 
-                        ? value.substring(0, 100) 
-                        : JSON.stringify(value).substring(0, 100);
-                    outputChannel.appendLine(`${i+1}. ${key} (${type}): ${valuePreview}${valuePreview.length > 100 ? '...' : ''}`);
-                }
-            }
-            
-            if (keys.length > 10) {
-                outputChannel.appendLine(`... and ${keys.length - 10} more keys (all exported to file)`);
-            }
-            
-            // Write data to file
-            fs.writeFileSync(exportPath, JSON.stringify(exportData, null, 2));
-            outputChannel.appendLine(`Data exported to: ${exportPath}`);
-            
-            vscode.window.showInformationMessage(
-                `Fetched ${keys.length} keys from Redis. Data exported to file.`,
-                'Open File'
-            ).then(selection => {
-                if (selection === 'Open File') {
-                    vscode.workspace.openTextDocument(exportPath).then(doc => {
-                        vscode.window.showTextDocument(doc);
-                    });
-                }
+
+                do {
+                    if (cancelExport) {
+                        break;
+                    }
+
+                    // Get a batch of keys using SCAN
+                    const result = await redisClient.scan(cursor, { COUNT: batchSize });
+                    cursor = parseInt(result.cursor);
+                    const keys = result.keys;
+
+                    if (keys.length === 0) {
+                        continue;
+                    }
+
+                    // Use pipeline to get types for all keys in batch
+                    const pipeline = redisClient.multi();
+                    for (const key of keys) {
+                        pipeline.type(key);
+                    }
+                    const types = await pipeline.exec();
+
+                    // Use another pipeline to get values based on types
+                    const valuePipeline = redisClient.multi();
+                    for (let i = 0; i < keys.length; i++) {
+                        const key = keys[i];
+                        const type = types[i] as string;
+                        
+                        switch (type) {
+                            case 'string':
+                                valuePipeline.get(key);
+                                break;
+                            case 'hash':
+                                valuePipeline.hGetAll(key);
+                                break;
+                            case 'list':
+                                valuePipeline.lRange(key, 0, -1);
+                                break;
+                            case 'set':
+                                valuePipeline.sMembers(key);
+                                break;
+                            case 'zset':
+                                valuePipeline.zRangeWithScores(key, 0, -1);
+                                break;
+                            default:
+                                valuePipeline.get(key); // Fallback
+                        }
+                    }
+                    const values = await valuePipeline.exec();
+
+                    // Write the batch to file
+                    for (let i = 0; i < keys.length; i++) {
+                        if (cancelExport) {
+                            break;
+                        }
+
+                        const key = keys[i];
+                        const type = types[i] as string;
+                        const value = values[i];
+
+                        const entry = {
+                            key,
+                            type,
+                            value
+                        };
+
+                        const jsonStr = JSON.stringify(entry);
+                        writeStream.write(jsonStr);
+
+                        exportedCount++;
+                        
+                        // Add comma unless it's the last entry
+                        if (exportedCount < totalKeys) {
+                            writeStream.write(',\n');
+                        } else {
+                            writeStream.write('\n');
+                        }
+
+                        // Update progress every 1000 keys
+                        if (exportedCount % 1000 === 0) {
+                            const percentage = Math.round((exportedCount / totalKeys) * 100);
+                            progress.report({
+                                message: `${exportedCount}/${totalKeys} keys (${percentage}%)`,
+                                increment: (1000 / totalKeys) * 100
+                            });
+                            
+                            outputChannel.appendLine(`Exported ${exportedCount}/${totalKeys} keys (${percentage}%)`);
+                        }
+                    }
+
+                } while (cursor !== 0 && !cancelExport);
+
+                // Final progress update
+                progress.report({ message: `Finishing export...`, increment: 100 });
             });
+
+            // Complete the JSON structure
+            writeStream.write(']\n');
+            writeStream.write('}\n');
+            writeStream.end();
+
+            if (cancelExport) {
+                fs.unlinkSync(exportPath); // Remove incomplete file
+                vscode.window.showInformationMessage('Export cancelled.');
+            } else {
+                outputChannel.appendLine(`Data export completed. Exported ${exportedCount} keys to: ${exportPath}`);
+                
+                vscode.window.showInformationMessage(
+                    `Exported ${exportedCount} keys from Redis.`,
+                    'Open File'
+                ).then(selection => {
+                    if (selection === 'Open File') {
+                        vscode.workspace.openTextDocument(exportPath).then(doc => {
+                            vscode.window.showTextDocument(doc);
+                        });
+                    }
+                });
+            }
+
         } catch (error) {
-            outputChannel.appendLine(`Error fetching data: ${error}`);
-            vscode.window.showErrorMessage(`Error fetching data: ${error}`);
+            outputChannel.appendLine(`Error during export: ${error}`);
+            vscode.window.showErrorMessage(`Error during export: ${error}`);
+        } finally {
+            cancelExport = false;
         }
     });
 
