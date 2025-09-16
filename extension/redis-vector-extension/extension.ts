@@ -155,7 +155,10 @@ export function activate(context: vscode.ExtensionContext) {
     });
 
    const fetchDataCommand = vscode.commands.registerCommand('redisVector.fetchData', async () => {
-        if (!redisClient) {
+        // Store reference to redisClient to avoid null issues
+        const currentRedisClient = redisClient;
+        
+        if (!currentRedisClient) {
             vscode.window.showErrorMessage('Not connected to Redis. Please connect first.');
             return;
         }
@@ -196,7 +199,7 @@ export function activate(context: vscode.ExtensionContext) {
             
             // Get total key count for progress reporting
             outputChannel.appendLine('Counting keys...');
-            const totalKeys = await redisClient.dbSize();
+            const totalKeys = await currentRedisClient.dbSize();
             outputChannel.appendLine(`Found approximately ${totalKeys} keys to export`);
             
             if (totalKeys > 100000) {
@@ -235,7 +238,7 @@ export function activate(context: vscode.ExtensionContext) {
 
                     // Get a batch of keys using SCAN
                     // The SCAN command returns an object with cursor and keys properties
-                    const result = await redisClient.scan(cursor, {
+                    const result = await currentRedisClient.scan(cursor, {
                         COUNT: batchSize
                     });
                     
@@ -248,7 +251,7 @@ export function activate(context: vscode.ExtensionContext) {
                     }
 
                     // Use pipeline to get types for all keys in batch
-                    const pipeline = redisClient.multi();
+                    const pipeline = currentRedisClient.multi();
                     for (const key of keys) {
                         pipeline.type(key);
                     }
@@ -257,7 +260,7 @@ export function activate(context: vscode.ExtensionContext) {
                     const typeResults = await pipeline.exec();
                     
                     // Use another pipeline to get values based on types
-                    const valuePipeline = redisClient.multi();
+                    const valuePipeline = currentRedisClient.multi();
                     for (let i = 0; i < keys.length; i++) {
                         const key = keys[i];
                         const type = typeResults[i] as string;
