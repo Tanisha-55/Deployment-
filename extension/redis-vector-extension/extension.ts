@@ -163,44 +163,87 @@ export function activate(context: vscode.ExtensionContext) {
         outputChannel.appendLine('Fetching data from Redis...');
 
         try {
+            // Get workspace folder
+            const workspaceFolders = vscode.workspace.workspaceFolders;
+            if (!workspaceFolders) {
+                vscode.window.showErrorMessage('No workspace folder open. Please open a workspace first.');
+                return;
+            }
+
+            const workspaceRoot = workspaceFolders[0].uri.fsPath;
+            const exportPath = path.join(workspaceRoot, 'redis_data_export.json');
+            
             // Get all keys
             const keys = await redisClient.keys('*');
             outputChannel.appendLine(`Found ${keys.length} keys`);
             
-            // Display first 10 keys as a sample
-            for (let i = 0; i < Math.min(keys.length, 10); i++) {
+            // Prepare data for export
+            const exportData = {
+                timestamp: new Date().toISOString(),
+                totalKeys: keys.length,
+                keys: [] as any[]
+            };
+            
+            // Display first 10 keys as a sample and prepare export data
+            for (let i = 0; i < keys.length; i++) {
                 const key = keys[i];
                 const type = await redisClient.type(key);
                 
-                let value = '';
+                let value: any = '';
                 switch (type) {
                     case 'string':
                         value = await redisClient.get(key) || '';
                         break;
                     case 'hash':
-                        value = JSON.stringify(await redisClient.hGetAll(key));
+                        value = await redisClient.hGetAll(key);
                         break;
                     case 'list':
-                        value = JSON.stringify(await redisClient.lRange(key, 0, -1));
+                        value = await redisClient.lRange(key, 0, -1);
                         break;
                     case 'set':
-                        value = JSON.stringify(await redisClient.sMembers(key));
+                        value = await redisClient.sMembers(key);
                         break;
                     case 'zset':
-                        value = JSON.stringify(await redisClient.zRange(key, 0, -1));
+                        value = await redisClient.zRangeWithScores(key, 0, -1);
                         break;
                     default:
                         value = `[Type: ${type}]`;
                 }
                 
-                outputChannel.appendLine(`${i+1}. ${key} (${type}): ${value.substring(0, 100)}${value.length > 100 ? '...' : ''}`);
+                // Add to export data
+                exportData.keys.push({
+                    key,
+                    type,
+                    value
+                });
+                
+                // Display first 10 keys in output channel
+                if (i < 10) {
+                    const valuePreview = typeof value === 'string' 
+                        ? value.substring(0, 100) 
+                        : JSON.stringify(value).substring(0, 100);
+                    outputChannel.appendLine(`${i+1}. ${key} (${type}): ${valuePreview}${valuePreview.length > 100 ? '...' : ''}`);
+                }
             }
             
             if (keys.length > 10) {
-                outputChannel.appendLine(`... and ${keys.length - 10} more keys`);
+                outputChannel.appendLine(`... and ${keys.length - 10} more keys (all exported to file)`);
             }
             
-            vscode.window.showInformationMessage(`Fetched ${keys.length} keys from Redis`);
+            // Write data to file
+            fs.writeFileSync(exportPath, JSON.stringify(exportData, null, 2));
+            outputChannel.appendLine(`Data exported to: ${exportPath}`);
+            
+            vscode.window.showInformationMessage(
+                `Fetched ${keys.length} keys from Redis. Data exported to file.`,
+                'Open File'
+            ).then(selection => {
+                if (selection === 'Open File') {
+                    vscode.workspace.openTextDocument(exportPath).then(doc => {
+                        vscode.window.showTextDocument(doc);
+                    });
+                }
+            });
         } catch (error) {
             outputChannel.appendLine(`Error fetching data: ${error}`);
             vscode.window.showErrorMessage(`Error fetching data: ${error}`);
