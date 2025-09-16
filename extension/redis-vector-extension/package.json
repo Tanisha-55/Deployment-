@@ -1,7 +1,7 @@
 {
   "name": "redis-vector-connector",
   "displayName": "Redis Vector DB Connector",
-  "description": "Connect to Redis Vector Database with SSL authentication",
+  "description": "Connect to Redis Vector Database with SSL authentication and vector search capabilities",
   "version": "1.0.0",
   "engines": {
     "vscode": "^1.60.0"
@@ -23,6 +23,16 @@
       {
         "command": "redisVector.fetchData",
         "title": "Fetch Data from Redis",
+        "category": "Redis Vector"
+      },
+      {
+        "command": "redisVector.storeWithEmbedding",
+        "title": "Store Description with Embedding",
+        "category": "Redis Vector"
+      },
+      {
+        "command": "redisVector.vectorSearch",
+        "title": "Vector Search in Redis",
         "category": "Redis Vector"
       },
       {
