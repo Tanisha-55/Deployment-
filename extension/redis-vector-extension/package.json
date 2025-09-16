@@ -24,6 +24,11 @@
         "command": "redisVector.fetchData",
         "title": "Fetch Data from Redis",
         "category": "Redis Vector"
+      },
+      {
+        "command": "redisVector.disconnect",
+        "title": "Disconnect from Redis",
+        "category": "Redis Vector"
       }
     ],
     "configuration": {
@@ -41,23 +46,33 @@
         },
         "redisVector.caCertPath": {
           "type": "string",
-          "default": "/ms/dist/sec/PRO)/pki/prod/truststores/GenPop-PROD/combined/pem/bundle.pem",
-          "description": "Path to CA certificate"
+          "default": "M:\\dist\\sec\\PROJ\\pki\\prod\\truststores\\GenPop-PROD\\combined\\pem\\bundle.pem",
+          "description": "Path to CA certificate (Windows format)"
         },
         "redisVector.clientCertPath": {
           "type": "string",
           "default": "/var/tmp/jaisoman-push/CERTS/mycert.cer",
-          "description": "Path to client certificate"
+          "description": "Remote path to client certificate"
         },
         "redisVector.clientKeyPath": {
           "type": "string",
           "default": "/var/tmp/jaisoman-push/CERTS/mkey.key",
-          "description": "Path to client key"
+          "description": "Remote path to client key"
         },
         "redisVector.dbName": {
           "type": "string",
           "default": "NYTD_LC_SYSDICT",
           "description": "Database name"
+        },
+        "redisVector.sshHost": {
+          "type": "string",
+          "default": "ivapp123456.devin3.ms.com",
+          "description": "SSH host for certificate access"
+        },
+        "redisVector.sshUser": {
+          "type": "string",
+          "default": "kumarita",
+          "description": "SSH username for certificate access"
         }
       }
     }
@@ -79,7 +94,6 @@
     "typescript": "^4.7.4"
   },
   "dependencies": {
-    "redis": "^4.6.7",
-    "fs": "0.0.1-security"
+    "redis": "^4.6.7"
   }
 }
