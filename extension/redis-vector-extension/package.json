@@ -1,0 +1,85 @@
+{
+  "name": "redis-vector-connector",
+  "displayName": "Redis Vector DB Connector",
+  "description": "Connect to Redis Vector Database with SSL authentication",
+  "version": "1.0.0",
+  "engines": {
+    "vscode": "^1.60.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onCommand:redisVector.connect"
+  ],
+  "main": "./out/src/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "redisVector.connect",
+        "title": "Connect to Redis Vector DB",
+        "category": "Redis Vector"
+      },
+      {
+        "command": "redisVector.fetchData",
+        "title": "Fetch Data from Redis",
+        "category": "Redis Vector"
+      }
+    ],
+    "configuration": {
+      "title": "Redis Vector DB",
+      "properties": {
+        "redisVector.host": {
+          "type": "string",
+          "default": "nfrtredis-dev-12030.ms.com",
+          "description": "Redis host address"
+        },
+        "redisVector.port": {
+          "type": "number",
+          "default": 12030,
+          "description": "Redis port number"
+        },
+        "redisVector.caCertPath": {
+          "type": "string",
+          "default": "/ms/dist/sec/PRO)/pki/prod/truststores/GenPop-PROD/combined/pem/bundle.pem",
+          "description": "Path to CA certificate"
+        },
+        "redisVector.clientCertPath": {
+          "type": "string",
+          "default": "/var/tmp/jaisoman-push/CERTS/mycert.cer",
+          "description": "Path to client certificate"
+        },
+        "redisVector.clientKeyPath": {
+          "type": "string",
+          "default": "/var/tmp/jaisoman-push/CERTS/mkey.key",
+          "description": "Path to client key"
+        },
+        "redisVector.dbName": {
+          "type": "string",
+          "default": "NYTD_LC_SYSDICT",
+          "description": "Database name"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile && npm run lint",
+    "lint": "eslint src --ext ts",
+    "test": "node ./out/test/runTest.js"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.60.0",
+    "@types/node": "16.x",
+    "@typescript-eslint/eslint-plugin": "^5.31.0",
+    "@typescript-eslint/parser": "^5.31.0",
+    "eslint": "^8.20.0",
+    "typescript": "^4.7.4"
+  },
+  "dependencies": {
+    "redis": "^4.6.7",
+    "fs": "0.0.1-security"
+  }
+}
