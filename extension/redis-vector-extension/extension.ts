@@ -211,7 +211,7 @@ export function activate(context: vscode.ExtensionContext) {
             writeStream.write('"keys": [\n');
 
             // Use SCAN to iterate through keys in batches (more efficient than KEYS)
-            let cursor = '0'; // SCAN cursor starts at '0'
+            let cursor = 0; // SCAN cursor starts at 0
             let exportedCount = 0;
             const batchSize = 1000; // Process keys in batches
 
@@ -234,12 +234,14 @@ export function activate(context: vscode.ExtensionContext) {
                     }
 
                     // Get a batch of keys using SCAN
-                    // Redis v4.x returns [nextCursor, keys]
-                    const [nextCursor, keys] = await redisClient.scan(cursor, {
+                    // The SCAN command returns an object with cursor and keys properties
+                    const result = await redisClient.scan(cursor, {
                         COUNT: batchSize
                     });
                     
-                    cursor = nextCursor;
+                    // Update cursor and get keys from the result
+                    cursor = result.cursor;
+                    const keys = result.keys;
                     
                     if (keys.length === 0) {
                         continue;
@@ -306,7 +308,7 @@ export function activate(context: vscode.ExtensionContext) {
                         exportedCount++;
                         
                         // Add comma unless it's the last entry or we're at the end
-                        if (exportedCount < totalKeys && cursor !== '0') {
+                        if (exportedCount < totalKeys && cursor !== 0) {
                             writeStream.write(',\n');
                         } else {
                             writeStream.write('\n');
@@ -324,7 +326,7 @@ export function activate(context: vscode.ExtensionContext) {
                         }
                     }
 
-                } while (cursor !== '0' && !cancelExport);
+                } while (cursor !== 0 && !cancelExport);
 
                 // Final progress update
                 progress.report({ message: `Finishing export...`, increment: 100 });
