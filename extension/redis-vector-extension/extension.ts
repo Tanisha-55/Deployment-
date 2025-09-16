@@ -1,10 +1,21 @@
 import * as vscode from 'vscode';
 import { createClient, RedisClientType } from 'redis';
 import * as fs from 'fs';
+import * as tls from 'tls';
+import * as child_process from 'child_process';
+import * as path from 'path';
 
 export function activate(context: vscode.ExtensionContext) {
     let redisClient: RedisClientType | null = null;
+    let sshProcess: child_process.ChildProcess | null = null;
     const outputChannel = vscode.window.createOutputChannel('Redis Vector DB');
+
+    // Ensure we're not ignoring certificate validation
+    if (process.env.NODE_TLS_REJECT_UNAUTHORIZED === '0') {
+        outputChannel.appendLine('WARNING: TLS certificate validation is disabled (NODE_TLS_REJECT_UNAUTHORIZED=0)');
+        outputChannel.appendLine('This is a security risk. Certificate validation will be enforced.');
+        delete process.env.NODE_TLS_REJECT_UNAUTHORIZED;
+    }
 
     const connectCommand = vscode.commands.registerCommand('redisVector.connect', async () => {
         outputChannel.show();
@@ -18,6 +29,8 @@ export function activate(context: vscode.ExtensionContext) {
             const clientCertPath = config.get('clientCertPath') as string;
             const clientKeyPath = config.get('clientKeyPath') as string;
             const dbName = config.get('dbName') as string;
+            const sshHost = config.get('sshHost') as string;
+            const sshUser = config.get('sshUser') as string;
 
             outputChannel.appendLine(`Configuration loaded:`);
             outputChannel.appendLine(`- Host: ${host}`);
@@ -26,26 +39,66 @@ export function activate(context: vscode.ExtensionContext) {
             outputChannel.appendLine(`- Client Cert: ${clientCertPath}`);
             outputChannel.appendLine(`- Client Key: ${clientKeyPath}`);
             outputChannel.appendLine(`- DB Name: ${dbName}`);
+            outputChannel.appendLine(`- SSH Host: ${sshHost}`);
+            outputChannel.appendLine(`- SSH User: ${sshUser}`);
+
+            // Normalize paths for Windows
+            const normalizedCaCertPath = caCertPath.replace(/\//g, '\\');
+            const normalizedClientCertPath = clientCertPath.replace(/\//g, '\\');
+            const normalizedClientKeyPath = clientKeyPath.replace(/\//g, '\\');
+
+            // Check if certificate files exist
+            if (!fs.existsSync(normalizedCaCertPath)) {
+                throw new Error(`CA certificate not found at: ${normalizedCaCertPath}`);
+            }
+
+            // Establish SSH tunnel for client certificates
+            outputChannel.appendLine('Establishing SSH tunnel for client certificates...');
+            
+            // For Windows, we'll use plink (PuTTY) or Windows SSH client
+            const sshCommand = `ssh -K ${sshUser}@${sshHost} "cat ${clientCertPath}" > temp_client.cert && ssh -K ${sshUser}@${sshHost} "cat ${clientKeyPath}" > temp_client.key`;
+            
+            outputChannel.appendLine(`Executing SSH command: ${sshCommand}`);
+            
+            // Execute SSH command
+            sshProcess = child_process.exec(sshCommand, (error, stdout, stderr) => {
+                if (error) {
+                    outputChannel.appendLine(`SSH Error: ${error.message}`);
+                    throw new Error(`SSH tunnel failed: ${error.message}`);
+                }
+                if (stderr) {
+                    outputChannel.appendLine(`SSH Stderr: ${stderr}`);
+                }
+                outputChannel.appendLine('SSH tunnel established successfully.');
+            });
+
+            // Wait a moment for SSH to establish
+            await new Promise(resolve => setTimeout(resolve, 3000));
 
             // Read certificate files
             outputChannel.appendLine('Reading certificate files...');
-            const caCert = fs.readFileSync(caCertPath, 'utf8');
-            const clientCert = fs.readFileSync(clientCertPath, 'utf8');
-            const clientKey = fs.readFileSync(clientKeyPath, 'utf8');
+            const caCert = fs.readFileSync(normalizedCaCertPath, 'utf8');
+            const clientCert = fs.readFileSync('temp_client.cert', 'utf8');
+            const clientKey = fs.readFileSync('temp_client.key', 'utf8');
 
             outputChannel.appendLine('Creating Redis client with SSL configuration...');
             
+            // Create a custom secure context
+            const secureContext = tls.createSecureContext({
+                ca: caCert,
+                cert: clientCert,
+                key: clientKey
+            });
+
             redisClient = createClient({
                 socket: {
                     host: host,
                     port: port,
                     tls: true,
-                    ca: caCert,
-                    cert: clientCert,
-                    key: clientKey,
+                    secureContext: secureContext,
                     rejectUnauthorized: true
                 },
-                database: 0 // Adjust if needed, or make configurable
+                database: 0
             });
 
             redisClient.on('error', (err) => {
@@ -75,6 +128,14 @@ export function activate(context: vscode.ExtensionContext) {
             outputChannel.appendLine(`Connection failed: ${error}`);
             vscode.window.showErrorMessage(`Failed to connect to Redis: ${error}`);
             redisClient = null;
+            
+            // Clean up temporary files
+            if (fs.existsSync('temp_client.cert')) {
+                fs.unlinkSync('temp_client.cert');
+            }
+            if (fs.existsSync('temp_client.key')) {
+                fs.unlinkSync('temp_client.key');
+            }
         }
     });
 
@@ -88,23 +149,37 @@ export function activate(context: vscode.ExtensionContext) {
         outputChannel.appendLine('Fetching data from Redis...');
 
         try {
-            // Example: Fetch all keys (adjust based on your data structure)
+            // Get all keys
             const keys = await redisClient.keys('*');
-            outputChannel.appendLine(`Found ${keys.length} keys:`);
+            outputChannel.appendLine(`Found ${keys.length} keys`);
             
-            for (const key of keys.slice(0, 10)) { // Show first 10 keys
+            // Display first 10 keys as a sample
+            for (let i = 0; i < Math.min(keys.length, 10); i++) {
+                const key = keys[i];
                 const type = await redisClient.type(key);
-                outputChannel.appendLine(`Key: ${key}, Type: ${type}`);
                 
-                // Example of fetching different data types
-                if (type === 'string') {
-                    const value = await redisClient.get(key);
-                    outputChannel.appendLine(`  Value: ${value}`);
-                } else if (type === 'hash') {
-                    const value = await redisClient.hGetAll(key);
-                    outputChannel.appendLine(`  Value: ${JSON.stringify(value)}`);
+                let value = '';
+                switch (type) {
+                    case 'string':
+                        value = await redisClient.get(key) || '';
+                        break;
+                    case 'hash':
+                        value = JSON.stringify(await redisClient.hGetAll(key));
+                        break;
+                    case 'list':
+                        value = JSON.stringify(await redisClient.lRange(key, 0, -1));
+                        break;
+                    case 'set':
+                        value = JSON.stringify(await redisClient.sMembers(key));
+                        break;
+                    case 'zset':
+                        value = JSON.stringify(await redisClient.zRange(key, 0, -1));
+                        break;
+                    default:
+                        value = `[Type: ${type}]`;
                 }
-                // Add more type handling as needed
+                
+                outputChannel.appendLine(`${i+1}. ${key} (${type}): ${value.substring(0, 100)}${value.length > 100 ? '...' : ''}`);
             }
             
             if (keys.length > 10) {
@@ -118,11 +193,41 @@ export function activate(context: vscode.ExtensionContext) {
         }
     });
 
+    const disconnectCommand = vscode.commands.registerCommand('redisVector.disconnect', async () => {
+        if (redisClient) {
+            await redisClient.quit();
+            outputChannel.appendLine('Disconnected from Redis');
+            vscode.window.showInformationMessage('Disconnected from Redis');
+            redisClient = null;
+        }
+        
+        if (sshProcess) {
+            sshProcess.kill();
+            outputChannel.appendLine('SSH tunnel closed');
+            sshProcess = null;
+        }
+        
+        // Clean up temporary files
+        if (fs.existsSync('temp_client.cert')) {
+            fs.unlinkSync('temp_client.cert');
+        }
+        if (fs.existsSync('temp_client.key')) {
+            fs.unlinkSync('temp_client.key');
+        }
+    });
+
     context.subscriptions.push(connectCommand);
     context.subscriptions.push(fetchDataCommand);
+    context.subscriptions.push(disconnectCommand);
     context.subscriptions.push(outputChannel);
 }
 
 export function deactivate() {
-    // Clean up if needed
+    // Clean up temporary files
+    if (fs.existsSync('temp_client.cert')) {
+        fs.unlinkSync('temp_client.cert');
+    }
+    if (fs.existsSync('temp_client.key')) {
+        fs.unlinkSync('temp_client.key');
+    }
 }
