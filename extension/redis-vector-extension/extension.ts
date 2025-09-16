@@ -5,10 +5,13 @@ import * as tls from 'tls';
 import * as child_process from 'child_process';
 import * as path from 'path';
 import * as os from 'os';
+import * as tf from '@tensorflow/tfjs-node';
+import * as use from '@tensorflow-models/universal-sentence-encoder';
 
 export function activate(context: vscode.ExtensionContext) {
     let redisClient: RedisClientType | null = null;
     let sshProcess: child_process.ChildProcess | null = null;
+    let sentenceEncoder: use.UniversalSentenceEncoder | null = null;
     const outputChannel = vscode.window.createOutputChannel('Redis Vector DB');
     let cancelExport = false;
 
@@ -18,6 +21,22 @@ export function activate(context: vscode.ExtensionContext) {
         outputChannel.appendLine('This is a security risk. Certificate validation will be enforced.');
         delete process.env.NODE_TLS_REJECT_UNAUTHORIZED;
     }
+
+    // Initialize TensorFlow.js and sentence encoder
+    const initializeEncoder = async () => {
+        try {
+            outputChannel.appendLine('Initializing TensorFlow.js and sentence encoder...');
+            await tf.ready();
+            sentenceEncoder = await use.load();
+            outputChannel.appendLine('Sentence encoder loaded successfully.');
+        } catch (error) {
+            outputChannel.appendLine(`Failed to initialize encoder: ${error}`);
+            vscode.window.showWarningMessage('Sentence encoder initialization failed. Some features may not work.');
+        }
+    };
+
+    // Call initialization
+    initializeEncoder();
 
     const connectCommand = vscode.commands.registerCommand('redisVector.connect', async () => {
         outputChannel.show();
@@ -154,7 +173,7 @@ export function activate(context: vscode.ExtensionContext) {
         }
     });
 
-   const fetchDataCommand = vscode.commands.registerCommand('redisVector.fetchData', async () => {
+    const fetchDataCommand = vscode.commands.registerCommand('redisVector.fetchData', async () => {
         // Store reference to redisClient to avoid null issues
         const currentRedisClient = redisClient;
         
@@ -297,7 +316,36 @@ export function activate(context: vscode.ExtensionContext) {
 
                         const key = keys[i];
                         const type = typeResults[i] as string;
-                        const value = valueResults[i];
+                        let value = valueResults[i];
+
+                        // Handle embedding data for better readability
+                        if (type === 'hash' && value && typeof value === 'object') {
+                            // Convert binary embedding data to a readable format
+                            if (value.embedding && Buffer.isBuffer(value.embedding)) {
+                                // Convert buffer to array of floats for readability
+                                const buffer = value.embedding;
+                                const floatArray = [];
+                                for (let j = 0; j < buffer.length; j += 4) {
+                                    floatArray.push(buffer.readFloatLE(j));
+                                }
+                                value.embedding = {
+                                    type: 'float32_array',
+                                    dimensions: floatArray.length,
+                                    data: floatArray
+                                };
+                            }
+                            
+                            // Convert other binary fields to base64 for readability
+                            for (const [field, fieldValue] of Object.entries(value)) {
+                                if (Buffer.isBuffer(fieldValue)) {
+                                    value[field] = {
+                                        type: 'binary_data',
+                                        encoding: 'base64',
+                                        data: fieldValue.toString('base64')
+                                    };
+                                }
+                            }
+                        }
 
                         const entry = {
                             key,
@@ -366,6 +414,246 @@ export function activate(context: vscode.ExtensionContext) {
         }
     });
 
+    // Generate embeddings using TensorFlow.js
+    const generateEmbedding = async (text: string): Promise<number[]> => {
+        if (!sentenceEncoder) {
+            throw new Error('Sentence encoder not initialized');
+        }
+
+        try {
+            const embeddings = await sentenceEncoder.embed([text]);
+            const embeddingArray = await embeddings.array();
+            return embeddingArray[0];
+        } catch (error) {
+            outputChannel.appendLine(`Error generating embedding: ${error}`);
+            throw new Error(`Failed to generate embedding: ${error}`);
+        }
+    };
+
+    // Convert embedding array to bytes for Redis storage
+    const embeddingToBytes = (embedding: number[]): Buffer => {
+        const floatArray = new Float32Array(embedding);
+        return Buffer.from(floatArray.buffer);
+    };
+
+    // Convert bytes from Redis to embedding array
+    const bytesToEmbedding = (bytes: Buffer): number[] => {
+        const floatArray = new Float32Array(bytes.buffer, bytes.byteOffset, bytes.byteLength / 4);
+        return Array.from(floatArray);
+    };
+
+    // Store description with embedding
+    const storeDescriptionWithEmbedding = async (key: string, description: string) => {
+        const currentRedisClient = redisClient;
+        
+        if (!currentRedisClient) {
+            throw new Error('Not connected to Redis');
+        }
+
+        if (!sentenceEncoder) {
+            throw new Error('Sentence encoder not initialized');
+        }
+
+        try {
+            const embedding = await generateEmbedding(description);
+            const embBytes = embeddingToBytes(embedding);
+            
+            await currentRedisClient.hSet(key, {
+                'desc': description,
+                'embedding': embBytes
+            });
+            
+            outputChannel.appendLine(`Stored description with embedding for key: ${key}`);
+            return true;
+        } catch (error) {
+            outputChannel.appendLine(`Error storing description with embedding: ${error}`);
+            throw error;
+        }
+    };
+
+    // Vector search implementation
+    const vectorSearch = async (query: string, k: number = 5) => {
+        const currentRedisClient = redisClient;
+        
+        if (!currentRedisClient) {
+            throw new Error('Not connected to Redis');
+        }
+
+        if (!sentenceEncoder) {
+            throw new Error('Sentence encoder not initialized');
+        }
+
+        try {
+            // Generate embedding for the query
+            const queryEmbedding = await generateEmbedding(query);
+            
+            // For simplicity, we'll do a brute-force search
+            // In a real implementation, you'd use RediSearch with vector index
+            outputChannel.appendLine(`Performing vector search for: "${query}"`);
+            
+            // Get all keys
+            const keys = await currentRedisClient.keys('*');
+            const results = [];
+            
+            // Check each key for embeddings and calculate similarity
+            for (const key of keys) {
+                const type = await currentRedisClient.type(key);
+                
+                if (type === 'hash') {
+                    const hashData = await currentRedisClient.hGetAll(key);
+                    
+                    if (hashData.embedding) {
+                        // Convert stored embedding back to array
+                        const storedEmbedding = bytesToEmbedding(Buffer.from(hashData.embedding as string, 'binary'));
+                        const storedDesc = hashData.desc as string;
+                        
+                        // Calculate cosine similarity
+                        const similarity = calculateCosineSimilarity(queryEmbedding, storedEmbedding);
+                        
+                        results.push({
+                            key,
+                            desc: storedDesc,
+                            similarity
+                        });
+                    }
+                }
+            }
+            
+            // Sort by similarity (descending)
+            results.sort((a, b) => b.similarity - a.similarity);
+            
+            // Return top k results
+            return results.slice(0, k);
+        } catch (error) {
+            outputChannel.appendLine(`Error during vector search: ${error}`);
+            throw error;
+        }
+    };
+
+    // Calculate cosine similarity between two vectors
+    const calculateCosineSimilarity = (vecA: number[], vecB: number[]): number => {
+        if (vecA.length !== vecB.length) {
+            throw new Error('Vectors must have the same length');
+        }
+        
+        let dotProduct = 0;
+        let normA = 0;
+        let normB = 0;
+        
+        for (let i = 0; i < vecA.length; i++) {
+            dotProduct += vecA[i] * vecB[i];
+            normA += vecA[i] * vecA[i];
+            normB += vecB[i] * vecB[i];
+        }
+        
+        normA = Math.sqrt(normA);
+        normB = Math.sqrt(normB);
+        
+        if (normA === 0 || normB === 0) {
+            return 0;
+        }
+        
+        return dotProduct / (normA * normB);
+    };
+
+    // Command to store description with embedding
+    const storeWithEmbeddingCommand = vscode.commands.registerCommand('redisVector.storeWithEmbedding', async () => {
+        const currentRedisClient = redisClient;
+        
+        if (!currentRedisClient) {
+            vscode.window.showErrorMessage('Not connected to Redis. Please connect first.');
+            return;
+        }
+
+        if (!sentenceEncoder) {
+            vscode.window.showErrorMessage('Sentence encoder not initialized. Please try again.');
+            return;
+        }
+
+        // Get key from user
+        const key = await vscode.window.showInputBox({
+            prompt: 'Enter the key for this item',
+            placeHolder: 'e.g., table:column'
+        });
+
+        if (!key) {
+            return;
+        }
+
+        // Get description from user
+        const description = await vscode.window.showInputBox({
+            prompt: 'Enter the description for this item',
+            placeHolder: 'e.g., This column stores employee names'
+        });
+
+        if (!description) {
+            return;
+        }
+
+        outputChannel.show();
+        
+        try {
+            await storeDescriptionWithEmbedding(key, description);
+            outputChannel.appendLine(`Successfully stored description with embedding for key: ${key}`);
+            vscode.window.showInformationMessage(`Stored description with embedding for key: ${key}`);
+        } catch (error) {
+            outputChannel.appendLine(`Error: ${error}`);
+            vscode.window.showErrorMessage(`Failed to store description: ${error}`);
+        }
+    });
+
+    // Command to perform vector search
+    const vectorSearchCommand = vscode.commands.registerCommand('redisVector.vectorSearch', async () => {
+        const currentRedisClient = redisClient;
+        
+        if (!currentRedisClient) {
+            vscode.window.showErrorMessage('Not connected to Redis. Please connect first.');
+            return;
+        }
+
+        if (!sentenceEncoder) {
+            vscode.window.showErrorMessage('Sentence encoder not initialized. Please try again.');
+            return;
+        }
+
+        // Get search query from user
+        const query = await vscode.window.showInputBox({
+            prompt: 'Enter your search query',
+            placeHolder: 'Search for similar items...'
+        });
+
+        if (!query) {
+            return;
+        }
+
+        outputChannel.show();
+        outputChannel.appendLine(`Performing vector search for: "${query}"`);
+
+        try {
+            const results = await vectorSearch(query, 5);
+            
+            if (results.length === 0) {
+                outputChannel.appendLine('No results found.');
+                vscode.window.showInformationMessage('No results found for your query.');
+                return;
+            }
+            
+            outputChannel.appendLine(`Found ${results.length} results:`);
+            
+            for (const result of results) {
+                outputChannel.appendLine(`Key: ${result.key}, Similarity: ${result.similarity.toFixed(4)}`);
+                outputChannel.appendLine(`Description: ${result.desc}`);
+                outputChannel.appendLine('---');
+            }
+            
+            vscode.window.showInformationMessage(`Found ${results.length} results for your query.`);
+            
+        } catch (error) {
+            outputChannel.appendLine(`Error during vector search: ${error}`);
+            vscode.window.showErrorMessage(`Error during vector search: ${error}`);
+        }
+    });
+
     const disconnectCommand = vscode.commands.registerCommand('redisVector.disconnect', async () => {
         if (redisClient) {
             await redisClient.quit();
@@ -389,6 +677,8 @@ export function activate(context: vscode.ExtensionContext) {
 
     context.subscriptions.push(connectCommand);
     context.subscriptions.push(fetchDataCommand);
+    context.subscriptions.push(storeWithEmbeddingCommand);
+    context.subscriptions.push(vectorSearchCommand);
     context.subscriptions.push(disconnectCommand);
     context.subscriptions.push(outputChannel);
 }
