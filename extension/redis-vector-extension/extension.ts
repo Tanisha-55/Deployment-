@@ -4,6 +4,7 @@ import * as fs from 'fs';
 import * as tls from 'tls';
 import * as child_process from 'child_process';
 import * as path from 'path';
+import * as os from 'os';
 
 export function activate(context: vscode.ExtensionContext) {
     let redisClient: RedisClientType | null = null;
@@ -44,42 +45,63 @@ export function activate(context: vscode.ExtensionContext) {
 
             // Normalize paths for Windows
             const normalizedCaCertPath = caCertPath.replace(/\//g, '\\');
-            const normalizedClientCertPath = clientCertPath.replace(/\//g, '\\');
-            const normalizedClientKeyPath = clientKeyPath.replace(/\//g, '\\');
-
-            // Check if certificate files exist
+            
+            // Check if CA certificate file exists
             if (!fs.existsSync(normalizedCaCertPath)) {
                 throw new Error(`CA certificate not found at: ${normalizedCaCertPath}`);
             }
 
-            // Establish SSH tunnel for client certificates
+            // Create temporary directory for certificate files
+            const tempDir = path.join(os.tmpdir(), 'redis-certs');
+            if (!fs.existsSync(tempDir)) {
+                fs.mkdirSync(tempDir, { recursive: true });
+            }
+            
+            const tempCertPath = path.join(tempDir, 'client.cert');
+            const tempKeyPath = path.join(tempDir, 'client.key');
+
+            // Establish SSH tunnel for client certificates - run commands separately
             outputChannel.appendLine('Establishing SSH tunnel for client certificates...');
             
-            // For Windows, we'll use plink (PuTTY) or Windows SSH client
-            const sshCommand = `ssh -K ${sshUser}@${sshHost} "cat ${clientCertPath}" > temp_client.cert && ssh -K ${sshUser}@${sshHost} "cat ${clientKeyPath}" > temp_client.key`;
-            
-            outputChannel.appendLine(`Executing SSH command: ${sshCommand}`);
-            
-            // Execute SSH command
-            sshProcess = child_process.exec(sshCommand, (error, stdout, stderr) => {
-                if (error) {
-                    outputChannel.appendLine(`SSH Error: ${error.message}`);
-                    throw new Error(`SSH tunnel failed: ${error.message}`);
-                }
-                if (stderr) {
-                    outputChannel.appendLine(`SSH Stderr: ${stderr}`);
-                }
-                outputChannel.appendLine('SSH tunnel established successfully.');
+            // Execute SSH commands one by one with proper error handling
+            await new Promise<void>((resolve, reject) => {
+                outputChannel.appendLine(`Downloading client certificate from ${sshHost}...`);
+                
+                const certCommand = `ssh -K ${sshUser}@${sshHost} "cat ${clientCertPath}" > "${tempCertPath}"`;
+                outputChannel.appendLine(`Executing: ${certCommand}`);
+                
+                child_process.exec(certCommand, (error, stdout, stderr) => {
+                    if (error) {
+                        outputChannel.appendLine(`SSH Error (cert): ${error.message}`);
+                        reject(new Error(`SSH certificate download failed: ${error.message}`));
+                        return;
+                    }
+                    
+                    outputChannel.appendLine('Client certificate downloaded successfully.');
+                    
+                    // Now download the key
+                    outputChannel.appendLine(`Downloading client key from ${sshHost}...`);
+                    const keyCommand = `ssh -K ${sshUser}@${sshHost} "cat ${clientKeyPath}" > "${tempKeyPath}"`;
+                    outputChannel.appendLine(`Executing: ${keyCommand}`);
+                    
+                    child_process.exec(keyCommand, (keyError, keyStdout, keyStderr) => {
+                        if (keyError) {
+                            outputChannel.appendLine(`SSH Error (key): ${keyError.message}`);
+                            reject(new Error(`SSH key download failed: ${keyError.message}`));
+                            return;
+                        }
+                        
+                        outputChannel.appendLine('Client key downloaded successfully.');
+                        resolve();
+                    });
+                });
             });
-
-            // Wait a moment for SSH to establish
-            await new Promise(resolve => setTimeout(resolve, 3000));
 
             // Read certificate files
             outputChannel.appendLine('Reading certificate files...');
             const caCert = fs.readFileSync(normalizedCaCertPath, 'utf8');
-            const clientCert = fs.readFileSync('temp_client.cert', 'utf8');
-            const clientKey = fs.readFileSync('temp_client.key', 'utf8');
+            const clientCert = fs.readFileSync(tempCertPath, 'utf8');
+            const clientKey = fs.readFileSync(tempKeyPath, 'utf8');
 
             outputChannel.appendLine('Creating Redis client with SSL configuration...');
             
@@ -128,14 +150,6 @@ export function activate(context: vscode.ExtensionContext) {
             outputChannel.appendLine(`Connection failed: ${error}`);
             vscode.window.showErrorMessage(`Failed to connect to Redis: ${error}`);
             redisClient = null;
-            
-            // Clean up temporary files
-            if (fs.existsSync('temp_client.cert')) {
-                fs.unlinkSync('temp_client.cert');
-            }
-            if (fs.existsSync('temp_client.key')) {
-                fs.unlinkSync('temp_client.key');
-            }
         }
     });
 
@@ -208,11 +222,9 @@ export function activate(context: vscode.ExtensionContext) {
         }
         
         // Clean up temporary files
-        if (fs.existsSync('temp_client.cert')) {
-            fs.unlinkSync('temp_client.cert');
-        }
-        if (fs.existsSync('temp_client.key')) {
-            fs.unlinkSync('temp_client.key');
+        const tempDir = path.join(os.tmpdir(), 'redis-certs');
+        if (fs.existsSync(tempDir)) {
+            fs.rmSync(tempDir, { recursive: true, force: true });
         }
     });
 
@@ -224,10 +236,8 @@ export function activate(context: vscode.ExtensionContext) {
 
 export function deactivate() {
     // Clean up temporary files
-    if (fs.existsSync('temp_client.cert')) {
-        fs.unlinkSync('temp_client.cert');
-    }
-    if (fs.existsSync('temp_client.key')) {
-        fs.unlinkSync('temp_client.key');
+    const tempDir = path.join(os.tmpdir(), 'redis-certs');
+    if (fs.existsSync(tempDir)) {
+        fs.rmSync(tempDir, { recursive: true, force: true });
     }
 }
